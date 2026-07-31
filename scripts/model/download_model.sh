@@ -3,6 +3,7 @@ set -euo pipefail
 
 CPDIF_WORKDIR="${CPDIF_WORKDIR:-/content/cpdif-work}"
 MODEL_DIR="${MODEL_DIR:-${CPDIF_WORKDIR}/models}"
+MODEL_COMPONENTS="${MODEL_COMPONENTS:-transformer,text_encoder,vae}"
 
 TRANSFORMER_REPO="${TRANSFORMER_REPO:-black-forest-labs/FLUX.2-klein-9B}"
 TRANSFORMER_REMOTE_FILE="${TRANSFORMER_REMOTE_FILE:-flux-2-klein-9b.safetensors}"
@@ -22,6 +23,28 @@ if ! command -v hf >/dev/null 2>&1; then
 fi
 
 mkdir -p "${MODEL_DIR}"
+
+IFS=',' read -r -a requested_components <<<"${MODEL_COMPONENTS}"
+component_enabled() {
+  local wanted="$1"
+  local component
+  for component in "${requested_components[@]}"; do
+    if [[ "${component}" == "${wanted}" ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+for component in "${requested_components[@]}"; do
+  case "${component}" in
+    transformer|text_encoder|vae) ;;
+    *)
+      echo "Unknown MODEL_COMPONENTS entry: ${component}" >&2
+      exit 2
+      ;;
+  esac
+done
 
 download_asset() {
   local repo="$1"
@@ -52,19 +75,25 @@ verify_asset() {
   MODEL_PATH="${path}" MODEL_SHA256="${expected}" "$(dirname "${BASH_SOURCE[0]}")/verify_model.sh"
 }
 
-if [[ ! -s "${TRANSFORMER_PATH}" ]]; then
-  download_asset "${TRANSFORMER_REPO}" "${TRANSFORMER_REMOTE_FILE}" "${TRANSFORMER_PATH}"
+if component_enabled transformer; then
+  if [[ ! -s "${TRANSFORMER_PATH}" ]]; then
+    download_asset "${TRANSFORMER_REPO}" "${TRANSFORMER_REMOTE_FILE}" "${TRANSFORMER_PATH}"
+  fi
+  verify_asset "${TRANSFORMER_PATH}" "${TRANSFORMER_SHA256}"
 fi
-verify_asset "${TRANSFORMER_PATH}" "${TRANSFORMER_SHA256}"
 
-if [[ ! -s "${TEXT_ENCODER_PATH}" ]]; then
-  download_asset "${AUX_REPO}" "${TEXT_ENCODER_REMOTE_FILE}" "${TEXT_ENCODER_PATH}"
+if component_enabled text_encoder; then
+  if [[ ! -s "${TEXT_ENCODER_PATH}" ]]; then
+    download_asset "${AUX_REPO}" "${TEXT_ENCODER_REMOTE_FILE}" "${TEXT_ENCODER_PATH}"
+  fi
+  verify_asset "${TEXT_ENCODER_PATH}" "${TEXT_ENCODER_SHA256}"
 fi
-verify_asset "${TEXT_ENCODER_PATH}" "${TEXT_ENCODER_SHA256}"
 
-if [[ ! -s "${VAE_PATH}" ]]; then
-  download_asset "${AUX_REPO}" "${VAE_REMOTE_FILE}" "${VAE_PATH}"
+if component_enabled vae; then
+  if [[ ! -s "${VAE_PATH}" ]]; then
+    download_asset "${AUX_REPO}" "${VAE_REMOTE_FILE}" "${VAE_PATH}"
+  fi
+  verify_asset "${VAE_PATH}" "${VAE_SHA256}"
 fi
-verify_asset "${VAE_PATH}" "${VAE_SHA256}"
 
-echo "Verified FLUX.2 Klein 9B model bundle under ${MODEL_DIR}"
+echo "Verified selected FLUX.2 Klein 9B components (${MODEL_COMPONENTS}) under ${MODEL_DIR}"

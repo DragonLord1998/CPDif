@@ -47,8 +47,9 @@ a toolchain manifest. Keep it locally and restore it only through
 `scripts/colab/05_restore_cache.sh`; incompatible CUDA, compiler, upstream, GPU,
 or source ancestry is rejected.
 
-Run the model download and smoke test after accepting the gated model license
-and adding a read-only `HF_TOKEN` Colab secret:
+Run the model download and smoke test after accepting the gated model license,
+adding a read-only `HF_TOKEN` Colab secret, and loading it into kernel memory
+once from the trusted Colab UI with `scripts/colab/ui_export_hf_token.py`:
 
 ```bash
 bash scripts/model/download_model.sh

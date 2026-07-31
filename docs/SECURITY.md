@@ -5,7 +5,10 @@ This workflow is designed for a private Colab CLI run, not a public service.
 ## Credentials
 
 - Do not commit tokens, cookies, Colab notebooks containing tokens, or downloaded model files.
-- Pass Hugging Face credentials through `HF_TOKEN`, or store a read-only token in Colab userdata as `HF_TOKEN`.
+- Store a read-only Hugging Face token in Colab userdata as `HF_TOKEN`. Because
+  userdata is intentionally unavailable to remotely executed CLI cells, load it
+  into kernel memory once from the trusted Colab UI with
+  `scripts/colab/ui_export_hf_token.py`.
 - The Colab CLI entrypoint injects the token into only the download subprocess environment and does not print or persist it.
 - Prefer short-lived or least-privilege tokens for gated model downloads.
 

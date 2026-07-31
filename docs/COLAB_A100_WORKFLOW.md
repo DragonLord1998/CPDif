@@ -20,9 +20,12 @@ Upload or clone this repository to `/content/CPDif`, then execute:
 colab exec -s cpdif-a100 -f scripts/colab/cli_entrypoint.py --timeout 7200
 ```
 
-The entrypoint reads `HF_TOKEN` (or legacy `HF_Token`) from Colab userdata only
-when it is not already present in the process environment. It never prints the
-token or writes it into this repository.
+Colab deliberately blocks `google.colab.userdata` when a cell is executed
+remotely through the CLI. Before the gated model download, open the trusted
+runtime UI once and run `scripts/colab/ui_export_hf_token.py`. It copies the
+read-only `HF_TOKEN` secret into kernel memory without printing or persisting
+the token. Subsequent CLI cells inherit that kernel environment. The CLI
+entrypoint fails closed when `HF_TOKEN` is absent.
 
 ## Debuggable stages
 
@@ -52,6 +55,13 @@ Defaults:
 
 The three model files are not committed. The download script verifies pinned
 SHA-256 checksums before generation.
+
+Public auxiliary components can be hydrated before gated transformer access is
+available:
+
+```bash
+MODEL_COMPONENTS=text_encoder,vae bash scripts/model/download_model.sh
+```
 
 The final A100 acceptance script writes `outputs/cat-suit/cat.png`, then uses
 that exact file as the single FLUX.2 reference image for
