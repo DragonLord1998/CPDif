@@ -84,7 +84,7 @@ target_compile_definitions(cpdif PRIVATE CPDIF_VERSION="${PROJECT_VERSION}")
 
 if(CPDIF_HAS_NATIVE_BACKEND)
   target_link_libraries(cpdif PRIVATE stable-diffusion)
-  target_include_directories(cpdif PRIVATE "${stable_diffusion_SOURCE_DIR}/thirdparty")
+  target_include_directories(cpdif SYSTEM PRIVATE "${stable_diffusion_SOURCE_DIR}/thirdparty")
   target_compile_definitions(cpdif PRIVATE CPDIF_HAS_NATIVE_BACKEND=1)
 else()
   target_compile_definitions(cpdif PRIVATE CPDIF_HAS_NATIVE_BACKEND=0)
