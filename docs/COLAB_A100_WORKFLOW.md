@@ -64,3 +64,30 @@ bash scripts/colab/02_build_cuda.sh
 ```
 
 On success, `cpdif backend` prints `native backend available` and CTest passes.
+
+## Preserving the cold-build cache
+
+Export the cache only after the build and CTest succeed:
+
+```bash
+bash scripts/colab/04_save_cache.sh
+```
+
+This produces a `.tar.zst` archive and `.sha256` under
+`/content/cpdif-cache-exports`. Download both with the Colab CLI and keep them
+outside Git. The archive contains the exact `build-a100` directory for the
+fastest resume, a compressed `ccache` for incremental compiler reuse, and a
+manifest recording project/upstream commits, GPU, compute capability, CUDA,
+GCC, CMake, and expected paths.
+
+On a later fresh A100 40GB runtime, first clone CPDif and prepare the pinned
+upstream source, then upload the archive and restore it:
+
+```bash
+CPDIF_CACHE_ARCHIVE=/content/cpdif-cache.tar.zst \
+CPDIF_CACHE_SHA256=<expected-sha256> \
+bash scripts/colab/05_restore_cache.sh
+```
+
+Restore fails closed when the archive checksum, A100 target, CUDA/compiler,
+upstream revision, fixed Colab paths, or project ancestry does not match.

@@ -21,7 +21,8 @@ $SUDO apt-get install -y --no-install-recommends \
   ninja-build \
   pkg-config \
   python3 \
-  python3-pip
+  python3-pip \
+  zstd
 
 git lfs install --skip-repo
 python3 -m pip install --quiet --upgrade huggingface_hub

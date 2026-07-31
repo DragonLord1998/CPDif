@@ -35,6 +35,17 @@ bash scripts/colab/02_build_cuda.sh
 
 The executable is `/content/cpdif-work/build-a100/bin/cpdif` by default.
 
+After a successful build, export a versioned A100 build cache:
+
+```bash
+bash scripts/colab/04_save_cache.sh
+```
+
+The archive contains the exact Ninja build directory, compressed `ccache`, and
+a toolchain manifest. Keep it locally and restore it only through
+`scripts/colab/05_restore_cache.sh`; incompatible CUDA, compiler, upstream, GPU,
+or source ancestry is rejected.
+
 Run the model download and smoke test after accepting the gated model license
 and adding a read-only `HF_TOKEN` Colab secret:
 

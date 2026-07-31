@@ -4,6 +4,7 @@
 /models/
 /outputs/
 /artifacts/
+/cache-exports/
 *.safetensors
 *.gguf
 *.ckpt
