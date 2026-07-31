@@ -1,0 +1,16 @@
+/build/
+/build-*/
+/.cache/
+/models/
+/outputs/
+/artifacts/
+*.safetensors
+*.gguf
+*.ckpt
+*.bin
+*.png
+*.webp
+*.sha256
+compile_commands.json
+__pycache__/
+*.pyc
