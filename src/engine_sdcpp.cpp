@@ -1,5 +1,6 @@
 #include "engine.hpp"
 
+#include "image_reader.hpp"
 #include "image_writer.hpp"
 
 #include <stable-diffusion.h>
@@ -90,6 +91,16 @@ public:
     }
 
     GenerationMetrics generate(const RuntimeConfig& config) {
+        LoadedImage reference_image;
+        sd_image_t reference_view{};
+        if (config.mode == GenerationMode::image_edit) {
+            reference_image = load_rgb_image(config.reference_image_path);
+            reference_view.width = static_cast<std::uint32_t>(reference_image.width);
+            reference_view.height = static_cast<std::uint32_t>(reference_image.height);
+            reference_view.channel = static_cast<std::uint32_t>(reference_image.channels);
+            reference_view.data = reference_image.pixels.data();
+        }
+
         sd_img_gen_params_t params;
         sd_img_gen_params_init(&params);
         params.prompt = config.prompt.c_str();
@@ -98,7 +109,13 @@ public:
         params.height = config.height;
         params.seed = config.seed;
         params.batch_count = 1;
-        params.qwen_image_layers = 0;
+        params.qwen_image_layers = config.mode == GenerationMode::image_edit
+                                      ? config.qwen_image_layers
+                                      : 0;
+        if (config.mode == GenerationMode::image_edit) {
+            params.ref_images = &reference_view;
+            params.ref_images_count = 1;
+        }
         params.sample_params.sample_steps = config.steps;
         params.sample_params.guidance.txt_cfg = config.cfg_scale;
         params.sample_params.sample_method = sd_get_default_sample_method(context_.get());

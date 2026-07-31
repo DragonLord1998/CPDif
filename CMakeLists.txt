@@ -68,6 +68,7 @@ if(NOT CPDIF_OFFLINE)
 
   set(CPDIF_ENGINE_SOURCES
     src/engine_sdcpp.cpp
+    src/image_reader.cpp
     src/image_writer.cpp
   )
   set(CPDIF_HAS_NATIVE_BACKEND ON)

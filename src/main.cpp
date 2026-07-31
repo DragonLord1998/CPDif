@@ -28,18 +28,22 @@ void print_help() {
         << "Usage:\n"
         << "  cpdif backend\n"
         << "  cpdif validate [generation options]\n"
-        << "  cpdif generate [generation options]\n\n"
+        << "  cpdif generate [generation options]\n"
+        << "  cpdif edit --reference-image PATH [generation options]\n\n"
         << "Required generation options:\n"
         << "  --transformer PATH     FLUX.2-klein-9B transformer (.safetensors or .gguf)\n"
         << "  --text-encoder PATH    Qwen3-8B text encoder\n"
         << "  --vae PATH             FLUX.2 VAE\n"
         << "  --prompt TEXT          Prompt to render\n\n"
+        << "Required for edit:\n"
+        << "  --reference-image PATH Source image to preserve and edit\n\n"
         << "Optional:\n"
         << "  --output PATH          PNG output (default: output.png)\n"
         << "  --telemetry PATH       JSON timing/backend output\n"
         << "  --width N              Width, divisible by 64 (default: 1024)\n"
         << "  --height N             Height, divisible by 64 (default: 1024)\n"
         << "  --steps N              Denoising steps (default: 4)\n"
+        << "  --qwen-image-layers N  Qwen visual conditioning layers (default: 3)\n"
         << "  --cfg-scale F          Guidance scale (default: 1.0)\n"
         << "  --seed N               Seed (default: 42)\n"
         << "  --threads N            CPU worker threads\n"
@@ -101,8 +105,13 @@ float parse_float(const std::string& option, const std::string& value) {
     }
 }
 
-cpdif::RuntimeConfig parse_config(int argc, char** argv, int start_index) {
+cpdif::RuntimeConfig parse_config(
+    int argc,
+    char** argv,
+    int start_index,
+    cpdif::GenerationMode mode) {
     cpdif::RuntimeConfig config;
+    config.mode = mode;
     for (int index = start_index; index < argc; ++index) {
         const std::string option = argv[index];
         const auto value = [&]() -> std::string {
@@ -118,6 +127,8 @@ cpdif::RuntimeConfig parse_config(int argc, char** argv, int start_index) {
             config.text_encoder_path = value();
         } else if (option == "--vae") {
             config.vae_path = value();
+        } else if (option == "--reference-image") {
+            config.reference_image_path = value();
         } else if (option == "--prompt") {
             config.prompt = value();
         } else if (option == "--output") {
@@ -132,6 +143,8 @@ cpdif::RuntimeConfig parse_config(int argc, char** argv, int start_index) {
             config.height = parse_integer<int>(option, value());
         } else if (option == "--steps") {
             config.steps = parse_integer<int>(option, value());
+        } else if (option == "--qwen-image-layers") {
+            config.qwen_image_layers = parse_integer<int>(option, value());
         } else if (option == "--threads") {
             config.threads = parse_integer<int>(option, value());
         } else if (option == "--seed") {
@@ -184,6 +197,7 @@ void write_telemetry(
     output << "{\n"
            << "  \"schema_version\": 1,\n"
            << "  \"engine\": \"cpdif-sdcpp\",\n"
+           << "  \"mode\": \"" << cpdif::generation_mode_name(config.mode) << "\",\n"
            << "  \"backend\": \"" << json_escape(metrics.backend_info) << "\",\n"
            << "  \"width\": " << config.width << ",\n"
            << "  \"height\": " << config.height << ",\n"
@@ -214,11 +228,14 @@ int main(int argc, char** argv) {
             std::cout << (cpdif::native_backend_available() ? "native backend available" : "native backend unavailable") << '\n';
             return cpdif::native_backend_available() ? 0 : 0;
         }
-        if (command != "validate" && command != "generate") {
+        if (command != "validate" && command != "generate" && command != "edit") {
             throw UsageError("unknown command: " + command);
         }
 
-        const cpdif::RuntimeConfig config = parse_config(argc, argv, 2);
+        const auto mode = command == "edit"
+                              ? cpdif::GenerationMode::image_edit
+                              : cpdif::GenerationMode::text_to_image;
+        const cpdif::RuntimeConfig config = parse_config(argc, argv, 2, mode);
         const auto errors = cpdif::validate(config, true);
         if (!errors.empty()) {
             print_validation_errors(errors);

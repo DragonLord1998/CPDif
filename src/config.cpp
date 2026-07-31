@@ -39,6 +39,13 @@ std::vector<std::string> validate(const RuntimeConfig& config, bool require_file
     validate_model_file("text encoder", config.text_encoder_path, require_files, errors);
     validate_model_file("VAE", config.vae_path, require_files, errors);
 
+    if (config.mode == GenerationMode::image_edit) {
+        validate_model_file(
+            "reference image", config.reference_image_path, require_files, errors);
+    } else if (!config.reference_image_path.empty()) {
+        errors.emplace_back("reference image is only valid in edit mode");
+    }
+
     if (config.prompt.empty()) {
         errors.emplace_back("prompt must not be empty");
     }
@@ -53,6 +60,9 @@ std::vector<std::string> validate(const RuntimeConfig& config, bool require_file
     }
     if (config.steps < 1 || config.steps > 1000) {
         errors.emplace_back("steps must be between 1 and 1000");
+    }
+    if (config.qwen_image_layers < 0 || config.qwen_image_layers > 64) {
+        errors.emplace_back("Qwen image layers must be between 0 and 64");
     }
     if (!(config.cfg_scale > 0.0F)) {
         errors.emplace_back("cfg scale must be positive");
@@ -69,6 +79,16 @@ const char* rng_name(RngKind rng) noexcept {
             return "cpu";
         case RngKind::cuda:
             return "cuda";
+    }
+    return "unknown";
+}
+
+const char* generation_mode_name(GenerationMode mode) noexcept {
+    switch (mode) {
+        case GenerationMode::text_to_image:
+            return "text-to-image";
+        case GenerationMode::image_edit:
+            return "image-edit";
     }
     return "unknown";
 }

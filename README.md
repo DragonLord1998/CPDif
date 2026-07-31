@@ -10,8 +10,9 @@ The first hardware gate is one Google Colab NVIDIA A100 40GB runtime. RTX PRO
 
 ## Current milestone
 
-- Native C++ CLI with structured model paths, deterministic generation options,
-  PNG output, progress logs, and JSON timing telemetry.
+- Native C++ CLI with text-to-image and FLUX.2 reference-image editing,
+  deterministic generation options, PNG input/output, progress logs, and JSON
+  timing telemetry.
 - CUDA build pinned to A100 compute capability 8.0 (`sm_80`).
 - Colab CLI entrypoint that validates the exact GPU/VRAM target.
 - Pinned and checksum-verified FLUX.2 Klein 9B transformer, Qwen3-8B text
@@ -51,7 +52,7 @@ and adding a read-only `HF_TOKEN` Colab secret:
 
 ```bash
 bash scripts/model/download_model.sh
-bash scripts/colab/03_smoke_prompt.sh
+bash scripts/colab/06_cat_and_suit.sh
 ```
 
 The full Colab CLI entrypoint is:
@@ -76,6 +77,25 @@ cpdif generate \
   --max-vram 36 --stream-layers \
   --output output.png --telemetry output.json
 ```
+
+Edit that generated image through FLUX.2 visual conditioning:
+
+```bash
+cpdif edit \
+  --transformer /models/flux-2-klein-9b.safetensors \
+  --text-encoder /models/qwen_3_8b.safetensors \
+  --vae /models/flux2-vae.safetensors \
+  --reference-image output.png \
+  --qwen-image-layers 3 \
+  --prompt "Keep the same cat and dress it in a fitted black business suit" \
+  --steps 4 --cfg-scale 1.0 --seed 12346 \
+  --width 1024 --height 1024 \
+  --max-vram 36 --stream-layers \
+  --output edited.png --telemetry edited.json
+```
+
+`scripts/colab/06_cat_and_suit.sh` runs the required two-image acceptance path:
+it generates one cat, then passes that exact PNG back as the edit reference.
 
 ## Offline validation build
 

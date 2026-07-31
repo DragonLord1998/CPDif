@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 import struct
 import sys
+from typing import Optional
 
 
 def validate(
@@ -13,6 +14,7 @@ def validate(
     telemetry_path: Path,
     expected_width: int,
     expected_height: int,
+    expected_mode: Optional[str] = None,
 ) -> None:
     with image_path.open("rb") as image:
         signature = image.read(8)
@@ -36,6 +38,7 @@ def validate(
     required = {
         "schema_version",
         "engine",
+        "mode",
         "backend",
         "width",
         "height",
@@ -53,17 +56,27 @@ def validate(
         raise ValueError("telemetry dimensions do not match the PNG")
     if telemetry["engine"] != "cpdif-sdcpp":
         raise ValueError(f"unexpected telemetry engine: {telemetry['engine']}")
+    if expected_mode is not None and telemetry["mode"] != expected_mode:
+        raise ValueError(
+            f"unexpected telemetry mode: {telemetry['mode']}; expected {expected_mode}"
+        )
 
 
 def main(argv: list[str]) -> int:
-    if len(argv) != 5:
+    if len(argv) not in (5, 6):
         print(
-            "usage: validate_smoke.py IMAGE TELEMETRY WIDTH HEIGHT",
+            "usage: validate_smoke.py IMAGE TELEMETRY WIDTH HEIGHT [MODE]",
             file=sys.stderr,
         )
         return 2
     try:
-        validate(Path(argv[1]), Path(argv[2]), int(argv[3]), int(argv[4]))
+        validate(
+            Path(argv[1]),
+            Path(argv[2]),
+            int(argv[3]),
+            int(argv[4]),
+            argv[5] if len(argv) == 6 else None,
+        )
     except (OSError, ValueError, json.JSONDecodeError, struct.error) as error:
         print(f"smoke validation failed: {error}", file=sys.stderr)
         return 1

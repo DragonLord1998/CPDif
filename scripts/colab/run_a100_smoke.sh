@@ -33,4 +33,4 @@ fi
 "${SCRIPT_DIR}/01_prepare_upstream.sh"
 "${SCRIPT_DIR}/02_build_cuda.sh"
 "${CPDIF_REPO_DIR}/scripts/model/download_model.sh"
-"${SCRIPT_DIR}/03_smoke_prompt.sh"
+"${SCRIPT_DIR}/06_cat_and_suit.sh"

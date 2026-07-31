@@ -33,7 +33,7 @@ bash scripts/colab/00_install_build_deps.sh
 bash scripts/colab/01_prepare_upstream.sh
 bash scripts/colab/02_build_cuda.sh
 bash scripts/model/download_model.sh
-bash scripts/colab/03_smoke_prompt.sh
+bash scripts/colab/06_cat_and_suit.sh
 ```
 
 Defaults:
@@ -52,6 +52,11 @@ Defaults:
 
 The three model files are not committed. The download script verifies pinned
 SHA-256 checksums before generation.
+
+The final A100 acceptance script writes `outputs/cat-suit/cat.png`, then uses
+that exact file as the single FLUX.2 reference image for
+`outputs/cat-suit/cat-in-suit.png`. Both PNGs and both telemetry files are
+validated before their checksums are recorded.
 
 ## Build-only debug loop
 

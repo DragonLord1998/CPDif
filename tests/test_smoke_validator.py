@@ -30,6 +30,7 @@ class SmokeValidatorTests(unittest.TestCase):
                 {
                     "schema_version": 1,
                     "engine": "cpdif-sdcpp",
+                    "mode": "text-to-image",
                     "backend": "test",
                     "width": width,
                     "height": height,
