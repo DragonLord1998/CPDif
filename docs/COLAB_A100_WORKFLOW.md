@@ -63,6 +63,16 @@ available:
 MODEL_COMPONENTS=text_encoder,vae bash scripts/model/download_model.sh
 ```
 
+The public upstream-maintainer Q8 transformer can be hydrated independently for
+the optimized all-GPU candidate path:
+
+```bash
+bash scripts/model/download_q8_transformer.sh
+```
+
+Its exact 9.98 GB file hash and upstream commit are pinned. Q8 is an optimization
+candidate, not an automatic fidelity substitute for the gated BF16 checkpoint.
+
 The final A100 acceptance script writes `outputs/cat-suit/cat.png`, then uses
 that exact file as the single FLUX.2 reference image for
 `outputs/cat-suit/cat-in-suit.png`. Both PNGs and both telemetry files are

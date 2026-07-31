@@ -56,6 +56,16 @@ bash scripts/model/download_model.sh
 bash scripts/colab/06_cat_and_suit.sh
 ```
 
+For the A100 low-VRAM/low-transfer optimization lane, the upstream maintainer
+also publishes a checksum-pinned Q8 transformer. It follows the original 9B
+license and is always evaluated against the BF16 fidelity baseline:
+
+```bash
+bash scripts/model/download_q8_transformer.sh
+TRANSFORMER_PATH=/content/cpdif-work/models/flux-2-klein-9b-Q8_0.gguf \
+  bash scripts/colab/06_cat_and_suit.sh
+```
+
 The full Colab CLI entrypoint is:
 
 ```text
