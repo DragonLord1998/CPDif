@@ -19,6 +19,8 @@ SMOKE_WIDTH="${SMOKE_WIDTH:-1024}"
 SMOKE_HEIGHT="${SMOKE_HEIGHT:-1024}"
 SMOKE_CFG_SCALE="${SMOKE_CFG_SCALE:-1.0}"
 CPDIF_MAX_VRAM="${CPDIF_MAX_VRAM:-36}"
+CPDIF_RESIDENCY="${CPDIF_RESIDENCY:-auto}"
+CPDIF_GPU_RESERVE_MIB="${CPDIF_GPU_RESERVE_MIB:-8192}"
 
 for required in "${CPDIF_BIN}" "${TRANSFORMER_PATH}" "${TEXT_ENCODER_PATH}" "${VAE_PATH}"; do
   if [[ ! -s "${required}" ]]; then
@@ -28,6 +30,25 @@ for required in "${CPDIF_BIN}" "${TRANSFORMER_PATH}" "${TEXT_ENCODER_PATH}" "${V
 done
 
 mkdir -p "${SMOKE_OUT_DIR}"
+
+selected_residency="$(python3 "${SCRIPT_DIR}/runtime_profile.py" \
+  --residency "${CPDIF_RESIDENCY}" \
+  --reserve-mib "${CPDIF_GPU_RESERVE_MIB}" \
+  "${TRANSFORMER_PATH}" "${TEXT_ENCODER_PATH}" "${VAE_PATH}")"
+
+residency_args=()
+case "${selected_residency}" in
+  gpu)
+    residency_args+=(--no-offload-to-cpu)
+    ;;
+  stream)
+    residency_args+=(--offload-to-cpu --max-vram "${CPDIF_MAX_VRAM}" --stream-layers)
+    ;;
+  *)
+    echo "Unexpected residency profile: ${selected_residency}" >&2
+    exit 1
+    ;;
+esac
 
 "${CPDIF_BIN}" generate \
   --transformer "${TRANSFORMER_PATH}" \
@@ -40,8 +61,7 @@ mkdir -p "${SMOKE_OUT_DIR}"
   --height "${SMOKE_HEIGHT}" \
   --cfg-scale "${SMOKE_CFG_SCALE}" \
   --rng cpu \
-  --max-vram "${CPDIF_MAX_VRAM}" \
-  --stream-layers \
+  "${residency_args[@]}" \
   --output "${SMOKE_OUTPUT}" \
   --telemetry "${SMOKE_TELEMETRY}"
 
@@ -51,3 +71,4 @@ python3 "${SCRIPT_DIR}/validate_smoke.py" \
 sha256sum "${SMOKE_OUTPUT}" | tee "${SMOKE_OUTPUT}.sha256"
 echo "Smoke image: ${SMOKE_OUTPUT}"
 echo "Telemetry: ${SMOKE_TELEMETRY}"
+echo "CPDIF_RESIDENCY=${selected_residency}"

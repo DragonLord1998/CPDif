@@ -6,6 +6,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <limits>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -22,6 +23,14 @@ public:
     using std::runtime_error::runtime_error;
 };
 
+struct GenerateEditOptions {
+    std::string prompt;
+    std::string output_path;
+    std::string telemetry_path;
+    std::int64_t seed = 0;
+    bool seed_is_set = false;
+};
+
 void print_help() {
     std::cout
         << "CPDif " << CPDIF_VERSION << " - native FLUX.2 Klein 9B C++/CUDA runtime\n\n"
@@ -29,7 +38,9 @@ void print_help() {
         << "  cpdif backend\n"
         << "  cpdif validate [generation options]\n"
         << "  cpdif generate [generation options]\n"
-        << "  cpdif edit --reference-image PATH [generation options]\n\n"
+        << "  cpdif edit --reference-image PATH [generation options]\n"
+        << "  cpdif generate-edit --edit-prompt TEXT --edited-output PATH "
+           "[generation options]\n\n"
         << "Required generation options:\n"
         << "  --transformer PATH     FLUX.2-klein-9B transformer (.safetensors or .gguf)\n"
         << "  --text-encoder PATH    Qwen3-8B text encoder\n"
@@ -37,6 +48,9 @@ void print_help() {
         << "  --prompt TEXT          Prompt to render\n\n"
         << "Required for edit:\n"
         << "  --reference-image PATH Source image to preserve and edit\n\n"
+        << "Required for generate-edit:\n"
+        << "  --edit-prompt TEXT     Prompt for the reference-image edit\n"
+        << "  --edited-output PATH   PNG output for the edited image\n\n"
         << "Optional:\n"
         << "  --output PATH          PNG output (default: output.png)\n"
         << "  --telemetry PATH       JSON timing/backend output\n"
@@ -49,8 +63,11 @@ void print_help() {
         << "  --threads N            CPU worker threads\n"
         << "  --max-vram SPEC        Graph-cut VRAM budget in GiB (default: 0)\n"
         << "  --stream-layers        Stream layer residency; requires --max-vram\n"
+        << "  --offload-to-cpu       Keep parameters in RAM until their compute stage\n"
         << "  --no-offload-to-cpu    Keep parameters on the compute backend\n"
-        << "  --rng cpu|cuda         Noise RNG (default: cpu for reproducibility)\n";
+        << "  --rng cpu|cuda         Noise RNG (default: cpu for reproducibility)\n"
+        << "  --edit-seed N          Seed for generate-edit (default: seed + 1)\n"
+        << "  --edited-telemetry P   JSON telemetry for generate-edit's edited image\n";
 }
 
 std::string json_escape(std::string_view value) {
@@ -109,7 +126,8 @@ cpdif::RuntimeConfig parse_config(
     int argc,
     char** argv,
     int start_index,
-    cpdif::GenerationMode mode) {
+    cpdif::GenerationMode mode,
+    GenerateEditOptions* generate_edit_options = nullptr) {
     cpdif::RuntimeConfig config;
     config.mode = mode;
     for (int index = start_index; index < argc; ++index) {
@@ -162,8 +180,19 @@ cpdif::RuntimeConfig parse_config(
             }
         } else if (option == "--stream-layers") {
             config.stream_layers = true;
+        } else if (option == "--offload-to-cpu") {
+            config.offload_to_cpu = true;
         } else if (option == "--no-offload-to-cpu") {
             config.offload_to_cpu = false;
+        } else if (option == "--edit-prompt" && generate_edit_options != nullptr) {
+            generate_edit_options->prompt = value();
+        } else if (option == "--edited-output" && generate_edit_options != nullptr) {
+            generate_edit_options->output_path = value();
+        } else if (option == "--edited-telemetry" && generate_edit_options != nullptr) {
+            generate_edit_options->telemetry_path = value();
+        } else if (option == "--edit-seed" && generate_edit_options != nullptr) {
+            generate_edit_options->seed = parse_integer<std::int64_t>(option, value());
+            generate_edit_options->seed_is_set = true;
         } else if (option == "--help" || option == "-h") {
             print_help();
             std::exit(0);
@@ -195,7 +224,7 @@ void write_telemetry(
         throw std::runtime_error("cannot write telemetry: " + config.telemetry_path);
     }
     output << "{\n"
-           << "  \"schema_version\": 1,\n"
+           << "  \"schema_version\": 2,\n"
            << "  \"engine\": \"cpdif-sdcpp\",\n"
            << "  \"mode\": \"" << cpdif::generation_mode_name(config.mode) << "\",\n"
            << "  \"backend\": \"" << json_escape(metrics.backend_info) << "\",\n"
@@ -204,6 +233,10 @@ void write_telemetry(
            << "  \"steps\": " << config.steps << ",\n"
            << "  \"seed\": " << config.seed << ",\n"
            << "  \"rng\": \"" << cpdif::rng_name(config.rng) << "\",\n"
+           << "  \"parameter_residency\": \""
+           << (config.offload_to_cpu ? "cpu" : "cuda") << "\",\n"
+           << "  \"stream_layers\": " << (config.stream_layers ? "true" : "false") << ",\n"
+           << "  \"max_vram\": \"" << json_escape(config.max_vram) << "\",\n"
            << "  \"load_ms\": " << metrics.load_ms << ",\n"
            << "  \"generation_ms\": " << metrics.generation_ms << ",\n"
            << "  \"output\": \"" << json_escape(config.output_path) << "\"\n"
@@ -228,14 +261,22 @@ int main(int argc, char** argv) {
             std::cout << (cpdif::native_backend_available() ? "native backend available" : "native backend unavailable") << '\n';
             return cpdif::native_backend_available() ? 0 : 0;
         }
-        if (command != "validate" && command != "generate" && command != "edit") {
+        if (command != "validate" && command != "generate" && command != "edit" &&
+            command != "generate-edit") {
             throw UsageError("unknown command: " + command);
         }
 
         const auto mode = command == "edit"
                               ? cpdif::GenerationMode::image_edit
                               : cpdif::GenerationMode::text_to_image;
-        const cpdif::RuntimeConfig config = parse_config(argc, argv, 2, mode);
+        GenerateEditOptions generate_edit_options;
+        const bool generate_edit = command == "generate-edit";
+        const cpdif::RuntimeConfig config = parse_config(
+            argc,
+            argv,
+            2,
+            mode,
+            generate_edit ? &generate_edit_options : nullptr);
         const auto errors = cpdif::validate(config, true);
         if (!errors.empty()) {
             print_validation_errors(errors);
@@ -244,6 +285,24 @@ int main(int argc, char** argv) {
         if (command == "validate") {
             std::cout << "configuration valid\n";
             return 0;
+        }
+        if (generate_edit) {
+            if (generate_edit_options.prompt.empty()) {
+                throw UsageError("--edit-prompt is required for generate-edit");
+            }
+            if (generate_edit_options.output_path.empty()) {
+                throw UsageError("--edited-output is required for generate-edit");
+            }
+            if (std::filesystem::path(generate_edit_options.output_path) ==
+                std::filesystem::path(config.output_path)) {
+                throw UsageError("--edited-output must differ from --output");
+            }
+            if (!generate_edit_options.seed_is_set) {
+                if (config.seed == std::numeric_limits<std::int64_t>::max()) {
+                    throw UsageError("--edit-seed is required when --seed is INT64_MAX");
+                }
+                generate_edit_options.seed = config.seed + 1;
+            }
         }
         if (!cpdif::native_backend_available()) {
             std::cerr << "error: native backend unavailable in this build\n";
@@ -255,6 +314,26 @@ int main(int argc, char** argv) {
         write_telemetry(config, metrics);
         std::cout << "wrote " << config.output_path << " (load=" << metrics.load_ms
                   << "ms, generate=" << metrics.generation_ms << "ms)\n";
+        if (generate_edit) {
+            cpdif::RuntimeConfig edit_config = config;
+            edit_config.mode = cpdif::GenerationMode::image_edit;
+            edit_config.reference_image_path = config.output_path;
+            edit_config.prompt = generate_edit_options.prompt;
+            edit_config.output_path = generate_edit_options.output_path;
+            edit_config.telemetry_path = generate_edit_options.telemetry_path;
+            edit_config.seed = generate_edit_options.seed;
+
+            const auto edit_errors = cpdif::validate(edit_config, true);
+            if (!edit_errors.empty()) {
+                print_validation_errors(edit_errors);
+                return 2;
+            }
+            const auto edit_metrics = engine.generate(edit_config);
+            write_telemetry(edit_config, edit_metrics);
+            std::cout << "wrote " << edit_config.output_path << " (load="
+                      << edit_metrics.load_ms << "ms, generate="
+                      << edit_metrics.generation_ms << "ms)\n";
+        }
         return 0;
     } catch (const UsageError& error) {
         std::cerr << "usage error: " << error.what() << "\nRun cpdif --help for usage.\n";
