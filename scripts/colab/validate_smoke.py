@@ -50,6 +50,7 @@ def validate(
         "max_vram",
         "load_ms",
         "generation_ms",
+        "image_write_ms",
         "output",
     }
     missing = sorted(required.difference(telemetry))

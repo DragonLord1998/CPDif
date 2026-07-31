@@ -42,6 +42,7 @@ class SmokeValidatorTests(unittest.TestCase):
                     "max_vram": "0",
                     "load_ms": 1,
                     "generation_ms": 2,
+                    "image_write_ms": 1,
                     "output": str(image_path),
                 }
             ),

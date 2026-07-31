@@ -22,6 +22,9 @@ void write_png(
     if (output.has_parent_path()) {
         std::filesystem::create_directories(output.parent_path());
     }
+    // PNG remains lossless. Favor inference-response latency over maximum compression.
+    stbi_write_png_compression_level = 1;
+    stbi_write_force_png_filter = 0;
     if (stbi_write_png(path.c_str(), width, height, channels, pixels, width * channels) == 0) {
         throw std::runtime_error("failed to write PNG: " + path);
     }

@@ -67,7 +67,8 @@ void print_help() {
         << "  --no-offload-to-cpu    Keep parameters on the compute backend\n"
         << "  --rng cpu|cuda         Noise RNG (default: cpu for reproducibility)\n"
         << "  --edit-seed N          Seed for generate-edit (default: seed + 1)\n"
-        << "  --edited-telemetry P   JSON telemetry for generate-edit's edited image\n";
+        << "  --edited-telemetry P   JSON telemetry for generate-edit's edited image\n"
+        << "  --verbose              Include upstream debug-level logging\n";
 }
 
 std::string json_escape(std::string_view value) {
@@ -193,6 +194,8 @@ cpdif::RuntimeConfig parse_config(
         } else if (option == "--edit-seed" && generate_edit_options != nullptr) {
             generate_edit_options->seed = parse_integer<std::int64_t>(option, value());
             generate_edit_options->seed_is_set = true;
+        } else if (option == "--verbose") {
+            config.verbose_logging = true;
         } else if (option == "--help" || option == "-h") {
             print_help();
             std::exit(0);
@@ -239,6 +242,7 @@ void write_telemetry(
            << "  \"max_vram\": \"" << json_escape(config.max_vram) << "\",\n"
            << "  \"load_ms\": " << metrics.load_ms << ",\n"
            << "  \"generation_ms\": " << metrics.generation_ms << ",\n"
+           << "  \"image_write_ms\": " << metrics.image_write_ms << ",\n"
            << "  \"output\": \"" << json_escape(config.output_path) << "\"\n"
            << "}\n";
 }
@@ -313,7 +317,8 @@ int main(int argc, char** argv) {
         const auto metrics = engine.generate(config);
         write_telemetry(config, metrics);
         std::cout << "wrote " << config.output_path << " (load=" << metrics.load_ms
-                  << "ms, generate=" << metrics.generation_ms << "ms)\n";
+                  << "ms, generate=" << metrics.generation_ms << "ms, encode="
+                  << metrics.image_write_ms << "ms)\n";
         if (generate_edit) {
             cpdif::RuntimeConfig edit_config = config;
             edit_config.mode = cpdif::GenerationMode::image_edit;
@@ -332,7 +337,8 @@ int main(int argc, char** argv) {
             write_telemetry(edit_config, edit_metrics);
             std::cout << "wrote " << edit_config.output_path << " (load="
                       << edit_metrics.load_ms << "ms, generate="
-                      << edit_metrics.generation_ms << "ms)\n";
+                      << edit_metrics.generation_ms << "ms, encode="
+                      << edit_metrics.image_write_ms << "ms)\n";
         }
         return 0;
     } catch (const UsageError& error) {

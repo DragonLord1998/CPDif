@@ -35,6 +35,7 @@ struct RuntimeConfig {
     float cfg_scale = 1.0F;
     bool offload_to_cpu = true;
     bool stream_layers = false;
+    bool verbose_logging = false;
     RngKind rng = RngKind::cpu;
 };
 

@@ -21,7 +21,11 @@ std::int64_t elapsed_ms(Clock::time_point begin) {
     return std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - begin).count();
 }
 
-void log_callback(enum sd_log_level_t level, const char* message, void*) {
+void log_callback(enum sd_log_level_t level, const char* message, void* user_data) {
+    const auto* verbose = static_cast<const bool*>(user_data);
+    if (level == SD_LOG_DEBUG && (verbose == nullptr || !*verbose)) {
+        return;
+    }
     const char* label = "INFO";
     if (level == SD_LOG_DEBUG) {
         label = "DEBUG";
@@ -60,7 +64,8 @@ struct ImagesDeleter {
 class KleinEngine::Impl {
 public:
     explicit Impl(const RuntimeConfig& config) {
-        sd_set_log_callback(log_callback, nullptr);
+        verbose_logging_ = config.verbose_logging;
+        sd_set_log_callback(log_callback, &verbose_logging_);
         sd_set_progress_callback(progress_callback, nullptr);
 
         sd_ctx_params_t params;
@@ -133,21 +138,25 @@ public:
             throw std::runtime_error("FLUX.2 Klein generation failed");
         }
 
+        const auto write_begin = Clock::now();
         write_png(
             config.output_path,
             static_cast<int>(images[0].width),
             static_cast<int>(images[0].height),
             static_cast<int>(images[0].channel),
             images[0].data);
+        const auto image_write_ms = elapsed_ms(write_begin);
 
         GenerationMetrics metrics;
         metrics.load_ms = load_ms_;
         metrics.generation_ms = generation_ms;
+        metrics.image_write_ms = image_write_ms;
         metrics.backend_info = sd_get_system_info();
         return metrics;
     }
 
 private:
+    bool verbose_logging_ = false;
     std::unique_ptr<sd_ctx_t, ContextDeleter> context_;
     std::int64_t load_ms_ = 0;
 };

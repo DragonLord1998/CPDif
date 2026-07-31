@@ -11,6 +11,7 @@ namespace cpdif {
 struct GenerationMetrics {
     std::int64_t load_ms = 0;
     std::int64_t generation_ms = 0;
+    std::int64_t image_write_ms = 0;
     std::string backend_info;
 };
 
