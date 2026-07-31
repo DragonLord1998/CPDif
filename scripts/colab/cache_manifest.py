@@ -1,4 +1,4 @@
-"""Create and validate a hardware/toolchain manifest for an A100 build cache."""
+"""Create and validate a hardware/toolchain manifest for a GPU build cache."""
 
 from __future__ import annotations
 
@@ -14,7 +14,19 @@ def output(*args: str, cwd: Path | None = None) -> str:
     return subprocess.check_output(args, cwd=cwd, text=True).strip()
 
 
-def live_manifest(repo_dir: Path, work_dir: Path) -> dict[str, object]:
+def cuda_architecture(compute_capability: str) -> str:
+    architecture = compute_capability.replace(".", "").strip()
+    if not architecture.isdigit():
+        raise ValueError(f"invalid compute capability: {compute_capability!r}")
+    return architecture
+
+
+def live_manifest(
+    repo_dir: Path,
+    work_dir: Path,
+    build_dir: Path,
+    cuda_architectures: str,
+) -> dict[str, object]:
     upstream_dir = work_dir / "upstream" / "stable-diffusion.cpp"
     gpu_fields = output(
         "nvidia-smi",
@@ -24,12 +36,13 @@ def live_manifest(repo_dir: Path, work_dir: Path) -> dict[str, object]:
     if len(gpu_fields) != 4:
         raise ValueError("expected exactly one GPU from nvidia-smi")
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "project_commit": output("git", "rev-parse", "HEAD", cwd=repo_dir),
         "upstream_commit": output("git", "rev-parse", "HEAD", cwd=upstream_dir),
         "repo_dir": str(repo_dir),
         "work_dir": str(work_dir),
-        "cuda_architectures": "80",
+        "build_dir_name": build_dir.name,
+        "cuda_architectures": cuda_architectures,
         "gpu_name": gpu_fields[0].strip(),
         "gpu_memory_mib": int(gpu_fields[1].strip()),
         "compute_capability": gpu_fields[2].strip(),
@@ -41,7 +54,12 @@ def live_manifest(repo_dir: Path, work_dir: Path) -> dict[str, object]:
 
 
 def create(args: argparse.Namespace) -> int:
-    manifest = live_manifest(args.repo_dir, args.work_dir)
+    manifest = live_manifest(
+        args.repo_dir,
+        args.work_dir,
+        args.build_dir,
+        args.cuda_architectures,
+    )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     print(args.output)
@@ -50,7 +68,19 @@ def create(args: argparse.Namespace) -> int:
 
 def validate(args: argparse.Namespace) -> int:
     saved = json.loads(args.manifest.read_text(encoding="utf-8"))
-    live = live_manifest(args.repo_dir, args.work_dir)
+    schema_version = int(saved.get("schema_version", 0))
+    legacy_a100 = schema_version == 1
+    saved_architectures = str(saved.get("cuda_architectures", "80"))
+    saved_build_name = str(saved.get("build_dir_name", "build-a100"))
+    live = live_manifest(
+        args.repo_dir,
+        args.work_dir,
+        args.work_dir / saved_build_name,
+        saved_architectures,
+    )
+    if legacy_a100:
+        live["schema_version"] = 1
+        live.pop("build_dir_name", None)
     exact_fields = (
         "schema_version",
         "upstream_commit",
@@ -62,15 +92,25 @@ def validate(args: argparse.Namespace) -> int:
         "gcc",
         "cmake",
     )
+    if not legacy_a100:
+        exact_fields += ("build_dir_name",)
     mismatches = [
         f"{field}: saved={saved.get(field)!r} live={live.get(field)!r}"
         for field in exact_fields
         if saved.get(field) != live.get(field)
     ]
-    if not (39000 <= int(live["gpu_memory_mib"]) <= 42000):
-        mismatches.append(f"GPU memory is not A100 40GB: {live['gpu_memory_mib']} MiB")
-    if "A100" not in str(live["gpu_name"]):
-        mismatches.append(f"GPU is not A100: {live['gpu_name']}")
+    live_architecture = cuda_architecture(str(live["compute_capability"]))
+    if live_architecture != saved_architectures:
+        mismatches.append(
+            f"GPU architecture mismatch: cache=sm{saved_architectures} live=sm{live_architecture}"
+        )
+    if legacy_a100:
+        if not (39000 <= int(live["gpu_memory_mib"]) <= 42000):
+            mismatches.append(
+                f"legacy cache requires A100 40GB: {live['gpu_memory_mib']} MiB"
+            )
+        if "A100" not in str(live["gpu_name"]):
+            mismatches.append(f"legacy cache requires A100: {live['gpu_name']}")
 
     saved_commit = str(saved.get("project_commit", ""))
     ancestor = subprocess.run(
@@ -98,11 +138,17 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("action", choices=("create", "validate"))
     parser.add_argument("--repo-dir", type=Path, default=Path("/content/CPDif"))
     parser.add_argument("--work-dir", type=Path, default=Path("/content/cpdif-work"))
+    parser.add_argument("--build-dir", type=Path)
+    parser.add_argument("--cuda-architectures")
     parser.add_argument("--output", type=Path)
     parser.add_argument("--manifest", type=Path)
     args = parser.parse_args()
     if args.action == "create" and args.output is None:
         parser.error("create requires --output")
+    if args.action == "create" and args.build_dir is None:
+        parser.error("create requires --build-dir")
+    if args.action == "create" and args.cuda_architectures is None:
+        parser.error("create requires --cuda-architectures")
     if args.action == "validate" and args.manifest is None:
         parser.error("validate requires --manifest")
     return args

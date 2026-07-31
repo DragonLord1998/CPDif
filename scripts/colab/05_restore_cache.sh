@@ -33,4 +33,4 @@ python3 "${SCRIPT_DIR}/cache_manifest.py" validate \
 
 mkdir -p "${CPDIF_WORKDIR}"
 tar --zstd -xf "${CPDIF_CACHE_ARCHIVE}" -C "${CPDIF_WORKDIR}"
-echo "Restored compatible A100 build cache into ${CPDIF_WORKDIR}"
+echo "Restored compatible GPU build cache into ${CPDIF_WORKDIR}"

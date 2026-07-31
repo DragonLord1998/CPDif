@@ -98,7 +98,7 @@ Export the cache only after the build and CTest succeed:
 bash scripts/colab/04_save_cache.sh
 ```
 
-This produces a `.tar.zst` archive and `.sha256` under
+This produces a compute-capability-tagged `.tar.zst` archive and `.sha256` under
 `/content/cpdif-cache-exports`. Download both with the Colab CLI and keep them
 outside Git. The archive contains the exact `build-a100` directory for the
 fastest resume, a compressed `ccache` for incremental compiler reuse, and a
@@ -114,5 +114,27 @@ CPDIF_CACHE_SHA256=<expected-sha256> \
 bash scripts/colab/05_restore_cache.sh
 ```
 
-Restore fails closed when the archive checksum, A100 target, CUDA/compiler,
-upstream revision, fixed Colab paths, or project ancestry does not match.
+Restore fails closed when the archive checksum, compute capability,
+CUDA/compiler, upstream revision, fixed Colab paths, or project ancestry does
+not match. The version-2 format also supports `sm120` RTX PRO 6000 caches;
+existing version-1 A100 40GB archives remain accepted on their original target.
+
+## RTX PRO 6000 final gate
+
+The Colab CLI exposes the RTX PRO 6000 runtime as `G4`:
+
+```bash
+colab new --session cpdif-rtx6000 --gpu G4
+```
+
+After cloning CPDif to `/content/CPDif`, run the GPU-generic public validation:
+
+```bash
+bash scripts/colab/07_run_gpu_validation.sh
+```
+
+On the validated runtime this detected `NVIDIA RTX PRO 6000 Blackwell Server
+Edition`, compute capability 12.0, compiled a native `sm120` binary under
+`/content/cpdif-work/build-sm120`, passed CTest, verified all model hashes, and
+completed the cat plus same-cat suit edit. See `docs/BENCHMARKS.md` for the
+three-run median and peak VRAM.

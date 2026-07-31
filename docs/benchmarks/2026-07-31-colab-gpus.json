@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "date": "2026-07-31",
+  "model": {
+    "transformer": "leejet/FLUX.2-klein-9B-GGUF/flux-2-klein-9b-Q8_0.gguf",
+    "transformer_sha256": "67ca777c7aa2d6a0d63d4a7564f823c63af88e9688643df727e1867789062982",
+    "text_encoder_sha256": "f0ff9239d56269ca1d05e5f86da6a79fac111af464955681f11c7ab0ec5ef6c1",
+    "vae_sha256": "868fe7b343cc8f3a19dbcfcafbc3d5f888802be3f89bd81b65b3621a066ce8f3"
+  },
+  "settings": {
+    "width": 1024,
+    "height": 1024,
+    "steps": 4,
+    "cfg_scale": 1.0,
+    "rng": "cpu",
+    "parameter_residency": "cuda",
+    "shared_context": true,
+    "gpu_sample_interval_ms": 100
+  },
+  "a100_40gb": {
+    "engine_commit": "f897b7edbaf16e0b6cfed74ac7962236d5f94677",
+    "gpu": "NVIDIA A100-SXM4-40GB",
+    "compute_capability": "8.0",
+    "driver_version": "580.82.07",
+    "runs": 1,
+    "wall_ms": 26630,
+    "cat_generation_ms": 12457,
+    "cat_encode_ms": 226,
+    "edit_generation_ms": 12425,
+    "edit_encode_ms": 196,
+    "peak_vram_mib": 29662,
+    "peak_gpu_utilization_percent": 100,
+    "peak_power_w": 276.35,
+    "cat_png_sha256": "367f6b5a0899801c75c555551570807a35fbbed31d295895d12e74c7c9ab462c",
+    "edit_png_sha256": "c121d40bcfd03f2620a6acbfb7d8fd295616f7bc78ad0e54aa8b0ce6b559f3bb"
+  },
+  "rtx_pro_6000": {
+    "engine_commit": "03ac9a88dc35d45a36deb54d5f4ce3e85458817d",
+    "gpu": "NVIDIA RTX PRO 6000 Blackwell Server Edition",
+    "compute_capability": "12.0",
+    "driver_version": "580.82.07",
+    "runs": 3,
+    "wall_ms_samples": [10825, 10730, 10615],
+    "wall_ms_median": 10730,
+    "cat_generation_ms_samples": [4374, 4348, 4328],
+    "cat_generation_ms_median": 4348,
+    "cat_encode_ms_median": 114,
+    "edit_generation_ms_samples": [5558, 5502, 5473],
+    "edit_generation_ms_median": 5502,
+    "edit_encode_ms_median": 100,
+    "peak_vram_mib": 29809,
+    "peak_gpu_utilization_percent": 100,
+    "peak_power_w_samples": [500.95, 481.07, 461.29],
+    "cat_png_sha256": "950528da35aa82cea263fdade7f51cf7a35ac54a68fff641869e329a4afd9ab4",
+    "edit_png_sha256": "052de78511692d2a7caffd40bf9b44ac4729209de524446ec1d0c36dd2d8de40"
+  },
+  "visual_acceptance": {
+    "cat": "pass",
+    "same_cat_suit_edit": "pass",
+    "identity_checks": [
+      "face",
+      "green eyes",
+      "fur markings",
+      "pose",
+      "camera framing",
+      "gray background"
+    ]
+  }
+}
