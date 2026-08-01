@@ -67,6 +67,7 @@ void print_help() {
         << "  --offload-to-cpu       Keep parameters in RAM until their compute stage\n"
         << "  --no-offload-to-cpu    Keep parameters on the compute backend\n"
         << "  --rng cpu|cuda         Noise RNG (default: cpu for reproducibility)\n"
+        << "  --klein-kv-cache       Use the dedicated 9B-KV reference-attention path\n"
         << "  --cache MODE           disabled|easycache|dbcache|taylorseer|cache-dit|spectrum\n"
         << "  --cache-threshold F    EasyCache reuse threshold (-1: backend default)\n"
         << "  --cache-start F        First cache-eligible denoise fraction (default: 0.15)\n"
@@ -243,6 +244,8 @@ cpdif::RuntimeConfig parse_config(
                     "--cache must be disabled, easycache, dbcache, taylorseer, "
                     "cache-dit, or spectrum");
             }
+        } else if (option == "--klein-kv-cache") {
+            config.klein_kv_cache = true;
         } else if (option == "--cache-threshold") {
             config.cache.reuse_threshold = parse_float(option, value());
         } else if (option == "--cache-start") {
@@ -345,6 +348,8 @@ void write_telemetry(
            << "  \"steps\": " << config.steps << ",\n"
            << "  \"seed\": " << config.seed << ",\n"
            << "  \"rng\": \"" << cpdif::rng_name(config.rng) << "\",\n"
+           << "  \"klein_kv_cache\": "
+           << (config.klein_kv_cache ? "true" : "false") << ",\n"
            << "  \"cache_mode\": \"" << cpdif::cache_mode_name(config.cache.mode)
            << "\",\n"
            << "  \"cache\": {\n"

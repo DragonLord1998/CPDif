@@ -38,6 +38,7 @@ class SmokeValidatorTests(unittest.TestCase):
                     "steps": 4,
                     "seed": 42,
                     "rng": "cpu",
+                    "klein_kv_cache": False,
                     "cache_mode": "disabled",
                     "cache": {},
                     "parameter_residency": "cuda",

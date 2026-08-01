@@ -1,0 +1,666 @@
+diff --git a/src/model/diffusion/flux.hpp b/src/model/diffusion/flux.hpp
+index 375576c..cbd9d58 100644
+--- a/src/model/diffusion/flux.hpp
++++ b/src/model/diffusion/flux.hpp
+@@ -427,6 +427,219 @@ namespace Flux {
+         return x;
+     }
+ 
++    __STATIC_INLINE__ ggml_tensor* token_view_3d(ggml_context* ctx,
++                                                  ggml_tensor* x,
++                                                  int64_t start,
++                                                  int64_t length) {
++        return ggml_view_3d(ctx,
++                            x,
++                            x->ne[0],
++                            length,
++                            x->ne[2],
++                            x->nb[1],
++                            x->nb[2],
++                            start * x->nb[1]);
++    }
++
++    __STATIC_INLINE__ ggml_tensor* token_view_4d(ggml_context* ctx,
++                                                  ggml_tensor* x,
++                                                  int64_t start,
++                                                  int64_t length) {
++        return ggml_view_4d(ctx,
++                            x,
++                            x->ne[0],
++                            x->ne[1],
++                            length,
++                            x->ne[3],
++                            x->nb[1],
++                            x->nb[2],
++                            x->nb[3],
++                            start * x->nb[2]);
++    }
++
++    __STATIC_INLINE__ ggml_tensor* position_view_4d(ggml_context* ctx,
++                                                     ggml_tensor* x,
++                                                     int64_t start,
++                                                     int64_t length) {
++        return ggml_view_4d(ctx,
++                            x,
++                            x->ne[0],
++                            x->ne[1],
++                            x->ne[2],
++                            length,
++                            x->nb[1],
++                            x->nb[2],
++                            x->nb[3],
++                            start * x->nb[3]);
++    }
++
++    __STATIC_INLINE__ ggml_tensor* reorder_klein_kv_positions(GGMLRunnerContext* ctx,
++                                                               ggml_tensor* pe,
++                                                               int64_t text_tokens,
++                                                               int64_t reference_tokens,
++                                                               int64_t image_tokens) {
++        auto text = position_view_4d(ctx->ggml_ctx, pe, 0, text_tokens);
++        auto image = position_view_4d(ctx->ggml_ctx, pe, text_tokens, image_tokens);
++        auto reference = position_view_4d(ctx->ggml_ctx,
++                                          pe,
++                                          text_tokens + image_tokens,
++                                          reference_tokens);
++        return ggml_concat(ctx->ggml_ctx,
++                           ggml_concat(ctx->ggml_ctx, text, reference, 3),
++                           image,
++                           3);
++    }
++
++    __STATIC_INLINE__ ggml_tensor* repeat_modulation(GGMLRunnerContext* ctx,
++                                                      ggml_tensor* value,
++                                                      int64_t tokens) {
++        auto expanded = ggml_reshape_3d(ctx->ggml_ctx,
++                                        value,
++                                        value->ne[0],
++                                        1,
++                                        value->ne[1]);
++        return ggml_repeat(ctx->ggml_ctx,
++                           expanded,
++                           ggml_new_tensor_3d(ctx->ggml_ctx,
++                                              value->type,
++                                              value->ne[0],
++                                              tokens,
++                                              value->ne[1]));
++    }
++
++    __STATIC_INLINE__ ggml_tensor* blend_double_modulation_value(GGMLRunnerContext* ctx,
++                                                                  ggml_tensor* image_value,
++                                                                  ggml_tensor* reference_value,
++                                                                  int64_t reference_tokens,
++                                                                  int64_t image_tokens) {
++        auto ref = repeat_modulation(ctx, reference_value, reference_tokens);
++        auto img = repeat_modulation(ctx, image_value, image_tokens);
++        return ggml_concat(ctx->ggml_ctx, ref, img, 1);
++    }
++
++    __STATIC_INLINE__ ggml_tensor* blend_single_modulation_value(GGMLRunnerContext* ctx,
++                                                                  ggml_tensor* image_value,
++                                                                  ggml_tensor* reference_value,
++                                                                  int64_t text_tokens,
++                                                                  int64_t reference_tokens,
++                                                                  int64_t image_tokens) {
++        auto txt = repeat_modulation(ctx, image_value, text_tokens);
++        auto ref = repeat_modulation(ctx, reference_value, reference_tokens);
++        auto img = repeat_modulation(ctx, image_value, image_tokens);
++        return ggml_concat(ctx->ggml_ctx,
++                           ggml_concat(ctx->ggml_ctx, txt, ref, 1),
++                           img,
++                           1);
++    }
++
++    __STATIC_INLINE__ ModulationOut blend_double_modulation(GGMLRunnerContext* ctx,
++                                                             const ModulationOut& image_mod,
++                                                             const ModulationOut& reference_mod,
++                                                             int64_t reference_tokens,
++                                                             int64_t image_tokens) {
++        return {
++            blend_double_modulation_value(ctx, image_mod.shift, reference_mod.shift, reference_tokens, image_tokens),
++            blend_double_modulation_value(ctx, image_mod.scale, reference_mod.scale, reference_tokens, image_tokens),
++            blend_double_modulation_value(ctx, image_mod.gate, reference_mod.gate, reference_tokens, image_tokens),
++        };
++    }
++
++    __STATIC_INLINE__ ModulationOut blend_single_modulation(GGMLRunnerContext* ctx,
++                                                             const ModulationOut& image_mod,
++                                                             const ModulationOut& reference_mod,
++                                                             int64_t text_tokens,
++                                                             int64_t reference_tokens,
++                                                             int64_t image_tokens) {
++        return {
++            blend_single_modulation_value(ctx, image_mod.shift, reference_mod.shift, text_tokens, reference_tokens, image_tokens),
++            blend_single_modulation_value(ctx, image_mod.scale, reference_mod.scale, text_tokens, reference_tokens, image_tokens),
++            blend_single_modulation_value(ctx, image_mod.gate, reference_mod.gate, text_tokens, reference_tokens, image_tokens),
++        };
++    }
++
++    __STATIC_INLINE__ ggml_tensor* klein_kv_attention(GGMLRunnerContext* ctx,
++                                                       ggml_tensor* q,
++                                                       ggml_tensor* k,
++                                                       ggml_tensor* v,
++                                                       ggml_tensor* pe,
++                                                       int64_t num_heads,
++                                                       int64_t text_tokens,
++                                                       int64_t reference_tokens,
++                                                       bool extract,
++                                                       const std::string& cache_prefix) {
++        q = Rope::apply_rope(ctx->ggml_ctx, q, pe, true);
++        k = Rope::apply_rope(ctx->ggml_ctx, k, pe, true);
++
++        ggml_tensor* reference_k = nullptr;
++        ggml_tensor* reference_v = nullptr;
++        if (extract) {
++            reference_k = token_view_3d(ctx->ggml_ctx, k, text_tokens, reference_tokens);
++            reference_v = token_view_4d(ctx->ggml_ctx, v, text_tokens, reference_tokens);
++            ctx->persist_cache_tensor(cache_prefix + ".k", reference_k);
++            ctx->persist_cache_tensor(cache_prefix + ".v", reference_v);
++        } else {
++            reference_k = ctx->load_cache_tensor(cache_prefix + ".k");
++            reference_v = ctx->load_cache_tensor(cache_prefix + ".v");
++            GGML_ASSERT(reference_k != nullptr && reference_v != nullptr);
++            reference_tokens = reference_k->ne[1];
++        }
++
++        const int64_t current_reference_tokens = extract ? reference_tokens : 0;
++        const int64_t current_image_start       = text_tokens + current_reference_tokens;
++        const int64_t image_tokens              = q->ne[1] - current_image_start;
++
++        auto q_text  = token_view_3d(ctx->ggml_ctx, q, 0, text_tokens);
++        auto q_image = token_view_3d(ctx->ggml_ctx, q, current_image_start, image_tokens);
++        auto q_main  = ggml_concat(ctx->ggml_ctx, q_text, q_image, 1);
++
++        ggml_tensor* k_all = k;
++        ggml_tensor* v_all = v;
++        if (!extract) {
++            auto k_text  = token_view_3d(ctx->ggml_ctx, k, 0, text_tokens);
++            auto k_image = token_view_3d(ctx->ggml_ctx, k, text_tokens, image_tokens);
++            auto v_text  = token_view_4d(ctx->ggml_ctx, v, 0, text_tokens);
++            auto v_image = token_view_4d(ctx->ggml_ctx, v, text_tokens, image_tokens);
++            k_all        = ggml_concat(ctx->ggml_ctx,
++                                ggml_concat(ctx->ggml_ctx, k_text, reference_k, 1),
++                                k_image,
++                                1);
++            v_all        = ggml_concat(ctx->ggml_ctx,
++                                ggml_concat(ctx->ggml_ctx, v_text, reference_v, 2),
++                                v_image,
++                                2);
++        }
++
++        auto main_attention = ggml_ext_attention_ext(ctx->ggml_ctx,
++                                                      ctx->backend,
++                                                      q_main,
++                                                      k_all,
++                                                      v_all,
++                                                      num_heads,
++                                                      nullptr,
++                                                      true,
++                                                      ctx->flash_attn_enabled);
++        if (!extract) {
++            return main_attention;
++        }
++
++        auto q_reference = token_view_3d(ctx->ggml_ctx, q, text_tokens, reference_tokens);
++        auto reference_attention = ggml_ext_attention_ext(ctx->ggml_ctx,
++                                                           ctx->backend,
++                                                           q_reference,
++                                                           reference_k,
++                                                           reference_v,
++                                                           num_heads,
++                                                           nullptr,
++                                                           true,
++                                                           ctx->flash_attn_enabled);
++        auto text_attention  = token_view_3d(ctx->ggml_ctx, main_attention, 0, text_tokens);
++        auto image_attention = token_view_3d(ctx->ggml_ctx, main_attention, text_tokens, image_tokens);
++        return ggml_concat(ctx->ggml_ctx,
++                           ggml_concat(ctx->ggml_ctx, text_attention, reference_attention, 1),
++                           image_attention,
++                           1);
++    }
++
+     struct DoubleStreamBlock : public GGMLBlock {
+         bool prune_mod;
+         int idx = 0;
+@@ -497,7 +710,11 @@ namespace Flux {
+                                                       ggml_tensor* pe,
+                                                       ggml_tensor* mask                   = nullptr,
+                                                       std::vector<ModulationOut> img_mods = {},
+-                                                      std::vector<ModulationOut> txt_mods = {}) {
++                                                      std::vector<ModulationOut> txt_mods = {},
++                                                      bool klein_kv_extract               = false,
++                                                      bool klein_kv_cached                = false,
++                                                      int64_t num_ref_tokens              = 0,
++                                                      const std::string& cache_prefix     = "") {
+             // img: [N, n_img_token, hidden_size]
+             // txt: [N, n_txt_token, hidden_size]
+             // pe: [n_img_token + n_txt_token, d_head/2, 2, 2]
+@@ -537,7 +754,11 @@ namespace Flux {
+ 
+             // prepare image for attention
+             auto img_modulated = img_norm1->forward(ctx, img);
+-            img_modulated      = Flux::modulate(ctx->ggml_ctx, img_modulated, img_mod1.shift, img_mod1.scale);
++            img_modulated      = Flux::modulate(ctx->ggml_ctx,
++                                          img_modulated,
++                                          img_mod1.shift,
++                                          img_mod1.scale,
++                                          ggml_n_dims(img_mod1.shift) >= 3);
+             auto img_qkv       = img_attn->pre_attention(ctx, img_modulated);  // q,k,v: [N, n_img_token, n_head, d_head]
+             auto img_q         = img_qkv[0];
+             auto img_k         = img_qkv[1];
+@@ -556,7 +777,18 @@ namespace Flux {
+             auto k = ggml_concat(ctx->ggml_ctx, txt_k, img_k, 2);  // [N, n_txt_token + n_img_token, n_head, d_head]
+             auto v = ggml_concat(ctx->ggml_ctx, txt_v, img_v, 2);  // [N, n_txt_token + n_img_token, n_head, d_head]
+ 
+-            auto attn         = Rope::attention(ctx, q, k, v, pe, mask);  // [N, n_txt_token + n_img_token, n_head*d_head]
++            auto attn = (klein_kv_extract || klein_kv_cached)
++                            ? klein_kv_attention(ctx,
++                                                 q,
++                                                 k,
++                                                 v,
++                                                 pe,
++                                                 img_attn->num_heads,
++                                                 txt->ne[1],
++                                                 num_ref_tokens,
++                                                 klein_kv_extract,
++                                                 cache_prefix)
++                            : Rope::attention(ctx, q, k, v, pe, mask);  // [N, n_txt_token + n_img_token, n_head*d_head]
+             auto txt_attn_out = ggml_view_3d(ctx->ggml_ctx,
+                                              attn,
+                                              attn->ne[0],
+@@ -577,7 +809,12 @@ namespace Flux {
+             // calculate the img bloks
+             img = ggml_add(ctx->ggml_ctx, img, ggml_mul(ctx->ggml_ctx, img_attn->post_attention(ctx, img_attn_out), img_mod1.gate));
+ 
+-            auto img_mlp_out = img_mlp->forward(ctx, Flux::modulate(ctx->ggml_ctx, img_norm2->forward(ctx, img), img_mod2.shift, img_mod2.scale));
++            auto img_mlp_out = img_mlp->forward(ctx,
++                                                Flux::modulate(ctx->ggml_ctx,
++                                                               img_norm2->forward(ctx, img),
++                                                               img_mod2.shift,
++                                                               img_mod2.scale,
++                                                               ggml_n_dims(img_mod2.shift) >= 3));
+ 
+             img = ggml_add(ctx->ggml_ctx, img, ggml_mul(ctx->ggml_ctx, img_mlp_out, img_mod2.gate));
+ 
+@@ -644,7 +881,12 @@ namespace Flux {
+                              ggml_tensor* vec,
+                              ggml_tensor* pe,
+                              ggml_tensor* mask               = nullptr,
+-                             std::vector<ModulationOut> mods = {}) {
++                             std::vector<ModulationOut> mods = {},
++                             bool klein_kv_extract           = false,
++                             bool klein_kv_cached            = false,
++                             int64_t num_txt_tokens          = 0,
++                             int64_t num_ref_tokens          = 0,
++                             const std::string& cache_prefix = "") {
+             // x: [N, n_token, hidden_size]
+             // pe: [n_token, d_head/2, 2, 2]
+             // return: [N, n_token, hidden_size]
+@@ -667,7 +909,11 @@ namespace Flux {
+                 }
+             }
+ 
+-            auto x_mod   = Flux::modulate(ctx->ggml_ctx, pre_norm->forward(ctx, x), mod.shift, mod.scale);
++            auto x_mod   = Flux::modulate(ctx->ggml_ctx,
++                                        pre_norm->forward(ctx, x),
++                                        mod.shift,
++                                        mod.scale,
++                                        ggml_n_dims(mod.shift) >= 3);
+             auto qkv_mlp = linear1->forward(ctx, x_mod);  // [N, n_token, hidden_size * 3 + mlp_hidden_dim*mlp_mult_factor]
+ 
+             int64_t head_dim = hidden_size / num_heads;
+@@ -681,7 +927,18 @@ namespace Flux {
+ 
+             q         = norm->query_norm(ctx, q);
+             k         = norm->key_norm(ctx, k);
+-            auto attn = Rope::attention(ctx, q, k, v, pe, mask);  // [N, n_token, hidden_size]
++            auto attn = (klein_kv_extract || klein_kv_cached)
++                            ? klein_kv_attention(ctx,
++                                                 q,
++                                                 k,
++                                                 v,
++                                                 pe,
++                                                 num_heads,
++                                                 num_txt_tokens,
++                                                 num_ref_tokens,
++                                                 klein_kv_extract,
++                                                 cache_prefix)
++                            : Rope::attention(ctx, q, k, v, pe, mask);  // [N, n_token, hidden_size]
+ 
+             auto mlp = ggml_view_3d(ctx->ggml_ctx, qkv_mlp, mlp_hidden_dim * mlp_mult_factor, qkv_mlp->ne[1], qkv_mlp->ne[2], qkv_mlp->nb[1], qkv_mlp->nb[2], hidden_size * 3 * qkv_mlp->nb[0]);
+             if (use_yak_mlp) {
+@@ -1015,7 +1272,10 @@ namespace Flux {
+                                   ggml_tensor* mod_index_arange = nullptr,
+                                   std::vector<int> skip_layers  = {},
+                                   ggml_tensor* pulid_id         = nullptr,
+-                                  float pulid_id_weight         = 1.0f) {
++                                  float pulid_id_weight         = 1.0f,
++                                  bool klein_kv_extract         = false,
++                                  bool klein_kv_cached          = false,
++                                  int64_t num_ref_tokens        = 0) {
+             auto img_in      = std::dynamic_pointer_cast<Linear>(blocks["img_in"]);
+             auto txt_in      = std::dynamic_pointer_cast<Linear>(blocks["txt_in"]);
+             auto final_layer = std::dynamic_pointer_cast<LastLayer>(blocks["final_layer"]);
+@@ -1025,6 +1285,7 @@ namespace Flux {
+             }
+ 
+             ggml_tensor* vec;
++            ggml_tensor* ref_vec = nullptr;
+             ggml_tensor* txt_img_mask = nullptr;
+             if (config.is_chroma) {
+                 int64_t mod_index_length = 344;
+@@ -1059,12 +1320,26 @@ namespace Flux {
+             } else {
+                 auto time_in = std::dynamic_pointer_cast<MLPEmbedder>(blocks["time_in"]);
+                 vec          = time_in->forward(ctx, ggml_ext_timestep_embedding(ctx->ggml_ctx, timesteps, 256, 10000, 1000.f));
++                if (klein_kv_extract) {
++                    auto ref_timesteps = ggml_scale(ctx->ggml_ctx, timesteps, 0.0f);
++                    ref_vec = time_in->forward(ctx,
++                                               ggml_ext_timestep_embedding(ctx->ggml_ctx,
++                                                                           ref_timesteps,
++                                                                           256,
++                                                                           10000,
++                                                                           1000.f));
++                }
+                 if (config.guidance_embed) {
+                     GGML_ASSERT(guidance != nullptr);
+                     auto guidance_in = std::dynamic_pointer_cast<MLPEmbedder>(blocks["guidance_in"]);
+                     // bf16 and fp16 result is different
+                     auto g_in = ggml_ext_timestep_embedding(ctx->ggml_ctx, guidance, 256, 10000, 1000.f);
+                     vec       = ggml_add(ctx->ggml_ctx, vec, guidance_in->forward(ctx, g_in));
++                    if (ref_vec != nullptr) {
++                        ref_vec = ggml_add(ctx->ggml_ctx,
++                                           ref_vec,
++                                           guidance_in->forward(ctx, g_in));
++                    }
+                 }
+ 
+                 if (config.vec_in_dim > 0) {
+@@ -1084,6 +1359,20 @@ namespace Flux {
+                 ds_img_mods = double_stream_modulation_img->forward(ctx, vec);
+                 ds_txt_mods = double_stream_modulation_txt->forward(ctx, vec);
+                 ss_mods     = single_stream_modulation->forward(ctx, vec);
++
++                if (klein_kv_extract) {
++                    GGML_ASSERT(ref_vec != nullptr && num_ref_tokens > 0);
++                    auto ref_ds_img_mods = double_stream_modulation_img->forward(ctx, ref_vec);
++                    auto ref_ss_mods     = single_stream_modulation->forward(ctx, ref_vec);
++                    const int64_t image_tokens = img->ne[1] - num_ref_tokens;
++                    ds_img_mods = {
++                        blend_double_modulation(ctx, ds_img_mods[0], ref_ds_img_mods[0], num_ref_tokens, image_tokens),
++                        blend_double_modulation(ctx, ds_img_mods[1], ref_ds_img_mods[1], num_ref_tokens, image_tokens),
++                    };
++                    ss_mods = {
++                        blend_single_modulation(ctx, ss_mods[0], ref_ss_mods[0], txt->ne[1], num_ref_tokens, image_tokens),
++                    };
++                }
+             }
+ 
+             if (config.semantic_txt_norm) {
+@@ -1093,6 +1382,13 @@ namespace Flux {
+             }
+ 
+             txt = txt_in->forward(ctx, txt);
++            if (klein_kv_extract) {
++                pe = reorder_klein_kv_positions(ctx,
++                                                pe,
++                                                txt->ne[1],
++                                                num_ref_tokens,
++                                                img->ne[1] - num_ref_tokens);
++            }
+             sd::ggml_graph_cut::mark_graph_cut(img, "flux.prelude", "img");
+             sd::ggml_graph_cut::mark_graph_cut(txt, "flux.prelude", "txt");
+             sd::ggml_graph_cut::mark_graph_cut(vec, "flux.prelude", "vec");
+@@ -1111,7 +1407,18 @@ namespace Flux {
+ 
+                 auto block = std::dynamic_pointer_cast<DoubleStreamBlock>(blocks["double_blocks." + std::to_string(i)]);
+ 
+-                auto img_txt = block->forward(ctx, img, txt, vec, pe, txt_img_mask, ds_img_mods, ds_txt_mods);
++                auto img_txt = block->forward(ctx,
++                                              img,
++                                              txt,
++                                              vec,
++                                              pe,
++                                              txt_img_mask,
++                                              ds_img_mods,
++                                              ds_txt_mods,
++                                              klein_kv_extract,
++                                              klein_kv_cached,
++                                              num_ref_tokens,
++                                              "flux.klein_kv.double." + std::to_string(i));
+                 img          = img_txt.first;   // [N, n_img_token, hidden_size]
+                 txt          = img_txt.second;  // [N, n_txt_token, hidden_size]
+                 sd::ggml_graph_cut::mark_graph_cut(img, "flux.double_blocks." + std::to_string(i), "img");
+@@ -1135,7 +1442,17 @@ namespace Flux {
+                 }
+                 auto block = std::dynamic_pointer_cast<SingleStreamBlock>(blocks["single_blocks." + std::to_string(i)]);
+ 
+-                txt_img = block->forward(ctx, txt_img, vec, pe, txt_img_mask, ss_mods);
++                txt_img = block->forward(ctx,
++                                         txt_img,
++                                         vec,
++                                         pe,
++                                         txt_img_mask,
++                                         ss_mods,
++                                         klein_kv_extract,
++                                         klein_kv_cached,
++                                         n_txt_tok,
++                                         num_ref_tokens,
++                                         "flux.klein_kv.single." + std::to_string(i));
+                 sd::ggml_graph_cut::mark_graph_cut(txt_img, "flux.single_blocks." + std::to_string(i), "txt_img");
+ 
+                 if (pulid_run && (i % config.pulid_single_interval == 0)) {
+@@ -1277,7 +1594,10 @@ namespace Flux {
+                                          std::vector<ggml_tensor*> ref_latents = {},
+                                          std::vector<int> skip_layers          = {},
+                                          ggml_tensor* pulid_id                 = nullptr,
+-                                         float pulid_id_weight                 = 1.0f) {
++                                         float pulid_id_weight                 = 1.0f,
++                                         bool klein_kv_extract                 = false,
++                                         bool klein_kv_cached                  = false,
++                                         int64_t num_ref_tokens                = 0) {
+             GGML_ASSERT(x->ne[3] == 1);
+ 
+             int64_t W      = x->ne[0];
+@@ -1318,17 +1638,29 @@ namespace Flux {
+             }
+ 
+             if (ref_latents.size() > 0) {
++                ggml_tensor* references = nullptr;
+                 for (ggml_tensor* ref : ref_latents) {
+                     ref = DiT::pad_and_patchify(ctx, ref, patch_size, patch_size);
+-                    img = ggml_concat(ctx->ggml_ctx, img, ref, 1);
++                    references = references == nullptr
++                                     ? ref
++                                     : ggml_concat(ctx->ggml_ctx, references, ref, 1);
++                }
++                if (klein_kv_extract) {
++                    GGML_ASSERT(references != nullptr && references->ne[1] == num_ref_tokens);
++                    img = ggml_concat(ctx->ggml_ctx, references, img, 1);
++                } else {
++                    img = ggml_concat(ctx->ggml_ctx, img, references, 1);
+                 }
+             }
+ 
+             auto out = forward_orig(ctx, img, context, timestep, y, guidance, pe, mod_index_arange, skip_layers,
+-                                    pulid_id, pulid_id_weight);  // [N, num_tokens, C * patch_size * patch_size]
++                                    pulid_id, pulid_id_weight, klein_kv_extract, klein_kv_cached, num_ref_tokens);  // [N, num_tokens, C * patch_size * patch_size]
+ 
+             if (out->ne[1] > img_tokens) {
+-                out = ggml_view_3d(ctx->ggml_ctx, out, out->ne[0], img_tokens, out->ne[2], out->nb[1], out->nb[2], 0);
++                const size_t offset = klein_kv_extract
++                                          ? static_cast<size_t>(num_ref_tokens) * out->nb[1]
++                                          : 0;
++                out = ggml_view_3d(ctx->ggml_ctx, out, out->ne[0], img_tokens, out->ne[2], out->nb[1], out->nb[2], offset);
+                 out = ggml_cont(ctx->ggml_ctx, out);
+             }
+ 
+@@ -1349,7 +1681,10 @@ namespace Flux {
+                              std::vector<ggml_tensor*> ref_latents = {},
+                              std::vector<int> skip_layers          = {},
+                              ggml_tensor* pulid_id                 = nullptr,
+-                             float pulid_id_weight                 = 1.0f) {
++                             float pulid_id_weight                 = 1.0f,
++                             bool klein_kv_extract                 = false,
++                             bool klein_kv_cached                  = false,
++                             int64_t num_ref_tokens                = 0) {
+             // Forward pass of DiT.
+             // x: (N, C, H, W) tensor of spatial inputs (images or latent representations of images)
+             // timestep: (N,) tensor of diffusion timesteps
+@@ -1389,7 +1724,10 @@ namespace Flux {
+                                            ref_latents,
+                                            skip_layers,
+                                            pulid_id,
+-                                           pulid_id_weight);
++                                           pulid_id_weight,
++                                           klein_kv_extract,
++                                           klein_kv_cached,
++                                           num_ref_tokens);
+             }
+         }
+     };
+@@ -1404,6 +1742,8 @@ namespace Flux {
+         sd::Tensor<float> guidance_tensor;
+         SDVersion version;
+         bool use_mask = true;
++        bool klein_kv_cache = false;
++        int64_t klein_kv_ref_tokens = 0;
+ 
+         FluxRunner(ggml_backend_t backend,
+                    const String2TensorStorage& tensor_storage_map      = {},
+@@ -1422,9 +1762,24 @@ namespace Flux {
+                     } else {
+                         LOG_WARN("ignoring invalid Chroma DiT model arg '%s=%s'", key.c_str(), value.c_str());
+                     }
++                } else if (key == "klein_kv_cache") {
++                    bool parsed = false;
++                    if (parse_strict_bool(value, parsed)) {
++                        klein_kv_cache = parsed;
++                    } else {
++                        LOG_WARN("ignoring invalid FLUX.2 klein KV-cache model arg '%s=%s'", key.c_str(), value.c_str());
++                    }
+                 }
+             }
+ 
++            if (klein_kv_cache && version != VERSION_FLUX2_KLEIN) {
++                LOG_WARN("FLUX.2 klein KV cache requested for a non-klein model; disabling");
++                klein_kv_cache = false;
++            }
++            if (klein_kv_cache) {
++                LOG_INFO("Using FLUX.2 klein reference-image KV cache");
++            }
++
+             if (config.is_chroma) {
+                 LOG_INFO("Using pruned modulation (Chroma)");
+             }
+@@ -1501,7 +1856,8 @@ namespace Flux {
+                                  Rope::RefIndexMode ref_index_mode                        = Rope::RefIndexMode::FIXED,
+                                  std::vector<int> skip_layers                             = {},
+                                  const sd::Tensor<float>& pulid_id_tensor                 = {},
+-                                 float pulid_id_weight                                    = 1.0f) {
++                                 float pulid_id_weight                                    = 1.0f,
++                                 int step                                                 = 0) {
+             ggml_tensor* x         = make_input(x_tensor);
+             ggml_tensor* timesteps = make_input(timesteps_tensor);
+             ggml_tensor* context   = make_optional_input(context_tensor);
+@@ -1522,6 +1878,9 @@ namespace Flux {
+                 ref_latents.push_back(make_input(ref_latent_tensor));
+             }
+ 
++            const bool klein_kv_extract = klein_kv_cache && step == 1 && !ref_latents.empty();
++            const bool klein_kv_cached  = klein_kv_cache && step > 1 && klein_kv_ref_tokens > 0;
++
+             GGML_ASSERT(x->ne[3] == 1);
+             ggml_cgraph* gf = new_graph_custom(FLUX_GRAPH_SIZE);
+ 
+@@ -1597,7 +1956,10 @@ namespace Flux {
+                                             ref_latents,
+                                             skip_layers,
+                                             pulid_id,
+-                                            pulid_id_weight);
++                                            pulid_id_weight,
++                                            klein_kv_extract,
++                                            klein_kv_cached,
++                                            klein_kv_ref_tokens);
+ 
+             ggml_build_forward_expand(gf, out);
+ 
+@@ -1615,15 +1977,42 @@ namespace Flux {
+                                   Rope::RefIndexMode ref_index_mode                 = Rope::RefIndexMode::FIXED,
+                                   std::vector<int> skip_layers                      = std::vector<int>(),
+                                   const sd::Tensor<float>& pulid_id                 = {},
+-                                  float pulid_id_weight                             = 1.0f) {
++                                  float pulid_id_weight                             = 1.0f,
++                                  int step                                          = 0) {
+             // x: [N, in_channels, h, w]
+             // timesteps: [N, ]
+             // context: [N, max_position, hidden_size]
+             // y: [N, adm_in_channels] or [1, adm_in_channels]
+             // guidance: [N, ]
+             // pulid_id: empty (no injection) or [N, num_id_tokens=32, kv_dim=2048]
++            static const std::vector<sd::Tensor<float>> empty_ref_latents;
++            const std::vector<sd::Tensor<float>>* active_ref_latents = &ref_latents;
++            if (klein_kv_cache && step == 1) {
++                cache_tensor_map.clear();
++                free_cache_ctx_and_buffer();
++                klein_kv_ref_tokens = 0;
++                for (const auto& ref : ref_latents) {
++                    if (ref.dim() >= 2) {
++                        klein_kv_ref_tokens += ref.shape()[0] * ref.shape()[1];
++                    }
++                }
++            } else if (klein_kv_cache && step > 1 && klein_kv_ref_tokens > 0) {
++                active_ref_latents = &empty_ref_latents;
++            }
++
+             auto get_graph = [&]() -> ggml_cgraph* {
+-                return build_graph(x, timesteps, context, c_concat, y, guidance, ref_latents, ref_index_mode, skip_layers, pulid_id, pulid_id_weight);
++                return build_graph(x,
++                                   timesteps,
++                                   context,
++                                   c_concat,
++                                   y,
++                                   guidance,
++                                   *active_ref_latents,
++                                   ref_index_mode,
++                                   skip_layers,
++                                   pulid_id,
++                                   pulid_id_weight,
++                                   step);
+             };
+ 
+             auto result = restore_trailing_singleton_dims(GGMLRunner::compute<float>(get_graph, n_threads, false, false, false), x.dim());
+@@ -1648,7 +2037,8 @@ namespace Flux {
+                            diffusion_params.ref_image_params.ref_index_mode,
+                            extra->skip_layers ? *extra->skip_layers : empty_skip_layers,
+                            tensor_or_empty(extra->pulid_id),
+-                           extra->pulid_id_weight);
++                           extra->pulid_id_weight,
++                           diffusion_params.step);
+         }
+ 
+         void test() {
+diff --git a/src/model/diffusion/model.hpp b/src/model/diffusion/model.hpp
+index d7a5f42..57c4cdb 100644
+--- a/src/model/diffusion/model.hpp
++++ b/src/model/diffusion/model.hpp
+@@ -110,6 +110,7 @@ using DiffusionExtraParams = std::variant<std::monostate,
+                                           HunyuanVideoDiffusionExtra>;
+ 
+ struct DiffusionParams {
++    int step                                             = 0;
+     const sd::Tensor<float>* x                        = nullptr;
+     const sd::Tensor<float>* timesteps                = nullptr;
+     const sd::Tensor<float>* context                  = nullptr;
+diff --git a/src/stable-diffusion.cpp b/src/stable-diffusion.cpp
+index 24e6839..636ede6 100644
+--- a/src/stable-diffusion.cpp
++++ b/src/stable-diffusion.cpp
+@@ -2612,6 +2612,7 @@ public:
+             sd_sample::SampleStepCacheDispatcher step_cache(cache_runtime, step, sigma);
+             std::vector<sd::Tensor<float>> controls;
+             DiffusionParams diffusion_params;
++            diffusion_params.step             = step;
+             diffusion_params.x                = &noised_input;
+             diffusion_params.timesteps        = &timesteps_tensor;
+             diffusion_params.ref_image_params = ref_image_params;

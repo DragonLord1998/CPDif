@@ -78,3 +78,25 @@ Telemetry is schema 3 for this pass. The benchmark's persistent steady-state
 measurement sums generation, in-memory reference handling, and lossless PNG
 write stages after the first request; model load is excluded because the
 context remains resident.
+
+## Klein 9B-KV reference cache
+
+CPDif now includes the dedicated Klein 9B-KV execution path, but no result is
+added to the measured table until the GPU evaluator passes. The gate uses the
+checksum-pinned standard and KV Q8 checkpoints, 1024x1024 images, four steps,
+CFG 1.0, full residency, and three persistent requests per profile. It requires
+valid PNG and telemetry artifacts and a KV steady-state image-edit median below
+the standard checkpoint measured in the same GPU session. The combined
+generate-plus-edit latency remains a separate reported metric. The standard
+profile must also reproduce the previously recorded GPU-specific PNG hashes,
+guarding the existing exact path while the new model path is evaluated.
+
+```bash
+bash scripts/colab/09_klein_kv_validation.sh
+```
+
+The result is written to
+`/content/cpdif-work/outputs/klein-kv/<gpu>/gpu-result.json`. Local compilation
+and regression tests prove integration, not GPU speed or visual quality; those
+remain open until this command finishes on a supported A100 40GB or RTX PRO
+6000 runtime.

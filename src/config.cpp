@@ -67,6 +67,15 @@ std::vector<std::string> validate(const RuntimeConfig& config, bool require_file
     if (!(config.cfg_scale > 0.0F)) {
         errors.emplace_back("cfg scale must be positive");
     }
+    if (config.klein_kv_cache && config.cfg_scale != 1.0F) {
+        errors.emplace_back("FLUX.2 klein KV cache requires cfg scale 1.0");
+    }
+    if (config.klein_kv_cache && config.stream_layers) {
+        errors.emplace_back("FLUX.2 klein KV cache is incompatible with layer streaming");
+    }
+    if (config.klein_kv_cache && config.cache.mode != CacheMode::disabled) {
+        errors.emplace_back("FLUX.2 klein KV cache cannot be combined with a diffusion cache");
+    }
     if (config.stream_layers && config.max_vram == "0") {
         errors.emplace_back("stream layers requires a non-zero max VRAM budget");
     }

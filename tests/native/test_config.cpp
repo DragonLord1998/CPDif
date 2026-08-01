@@ -81,6 +81,32 @@ int main() {
         return 1;
     }
 
+    valid.cache.mode = cpdif::CacheMode::disabled;
+    valid.klein_kv_cache = true;
+    valid.cfg_scale = 2.0F;
+    if (!contains(cpdif::validate(valid, false), "KV cache requires cfg scale 1.0")) {
+        std::cerr << "expected KV cache with CFG to be rejected\n";
+        return 1;
+    }
+    valid.cfg_scale = 1.0F;
+    if (!cpdif::validate(valid, false).empty()) {
+        std::cerr << "expected FLUX.2 klein KV-cache configuration to pass\n";
+        return 1;
+    }
+    valid.stream_layers = true;
+    valid.max_vram = "24";
+    if (!contains(cpdif::validate(valid, false), "incompatible with layer streaming")) {
+        std::cerr << "expected KV cache with layer streaming to be rejected\n";
+        return 1;
+    }
+    valid.stream_layers = false;
+    valid.cache.mode = cpdif::CacheMode::dbcache;
+    if (!contains(cpdif::validate(valid, false), "cannot be combined with a diffusion cache")) {
+        std::cerr << "expected KV cache with a diffusion cache to be rejected\n";
+        return 1;
+    }
+    valid.cache.mode = cpdif::CacheMode::disabled;
+
     if (std::string(cpdif::rng_name(cpdif::RngKind::cpu)) != "cpu") {
         std::cerr << "unexpected RNG name\n";
         return 1;

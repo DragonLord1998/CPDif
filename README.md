@@ -18,6 +18,8 @@ not depend on ComfyUI, a notebook UI, a tunnel, or a Python inference runtime.
   context-reuse telemetry, and no model reload between requests.
 - Opt-in EasyCache, DBCache, TaylorSeer, Cache-DiT, and Spectrum acceleration
   through the pinned native backend. The exact path remains the default.
+- Native FLUX.2 Klein 9B-KV reference-attention caching through a pinned,
+  reproducible stable-diffusion.cpp patch and the dedicated KV checkpoint.
 - Native CUDA builds for A100 `sm80` and RTX PRO 6000 Blackwell `sm120`.
 - Automatic parameter residency: the checksum-pinned Q8 profile stays on CUDA
   when model size plus an 8 GiB safety reserve fits; otherwise it streams.
@@ -88,7 +90,24 @@ The archive contains the exact Ninja build directory, compressed `ccache`, and
 a toolchain manifest. Keep it outside Git and restore it only through
 `scripts/colab/05_restore_cache.sh`; incompatible compute capability, CUDA,
 compiler, upstream, paths, or source ancestry is rejected. Legacy A100 cache
-manifests remain supported.
+manifests remain supported. Manifest schema 3 also pins the SHA-256 of CPDif's
+upstream patch, so a binary built from a different patch cannot be restored.
+
+Published schema-3 caches can be restored directly from the
+`gpu-build-cache-v3` GitHub release after installing dependencies and preparing
+the pinned upstream source:
+
+```bash
+bash scripts/colab/00_install_build_deps.sh
+bash scripts/colab/01_prepare_upstream.sh
+bash scripts/colab/10_restore_release_cache.sh
+bash scripts/colab/02_build_cuda.sh
+```
+
+The final build command is intentionally retained: it verifies the restored
+manifest, performs only necessary incremental compilation, and runs CTest.
+Release assets are architecture-specific (`sm80` and `sm120`) and include the
+native build tree plus compressed `ccache`; they never include model weights.
 
 Run the model download and smoke test after accepting the gated model license,
 adding a read-only `HF_TOKEN` Colab secret, and loading it into kernel memory
@@ -191,6 +210,29 @@ Cache options are deliberately explicit because thresholds and warmup values
 are model- and step-count-sensitive. Run
 `scripts/colab/08_sglang_diffusion_validation.sh` to reproduce the complete
 exact, persistent, and cache-mode matrix on either supported Colab GPU.
+
+For exact reference-attention reuse, download the dedicated Klein 9B-KV Q8
+checkpoint and add `--klein-kv-cache`:
+
+```bash
+bash scripts/model/download_kv_q8_transformer.sh
+cpdif generate-edit \
+  --transformer /models/flux-2-klein-9b-kv-Q8_0.gguf \
+  --text-encoder /models/qwen_3_8b.safetensors \
+  --vae /models/flux2-vae.safetensors \
+  --klein-kv-cache --cfg-scale 1.0 --steps 4 \
+  --prompt "a realistic orange tabby cat in a gray studio" \
+  --edit-prompt "Keep the same cat and dress it in a fitted black suit" \
+  --output cat.png --edited-output cat-in-suit.png
+```
+
+This flag is valid only with the dedicated `FLUX.2-klein-9B-KV` weights and
+CFG 1.0, without layer streaming or a diffusion cache. Do not enable it with
+the standard Klein 9B checkpoint. Run
+`scripts/colab/09_klein_kv_validation.sh` for the pinned GPU benchmark. The
+native path compiles and passes local regression tests; its new GPU latency and
+visual result remain unclaimed until that evaluator completes. See
+[the Klein KV-cache implementation notes](docs/KLEIN_KV_CACHE.md).
 
 `scripts/colab/06_cat_and_suit.sh` runs the required two-image acceptance path:
 it uses `cpdif generate-edit` to generate one cat, write its lossless PNG, and

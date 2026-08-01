@@ -24,6 +24,7 @@ Primary references:
 | Flash Attention and native CUDA kernels | CPDif continues to enable diffusion Flash Attention and compiles the pinned GGML CUDA backend for the attached GPU's real architecture (`sm80` or `sm120`). |
 | Layer/offload policy | Existing CUDA residency and layer streaming remain available. The exact Q8 profile fits both validated GPUs and is faster fully resident. |
 | Peak-memory and stage observability | Telemetry schema 3 records cache mode/configuration, context reuse, reference-load time, model load, generation, PNG write, residency, and streaming state. |
+| FLUX.2 Klein 9B-KV | CPDif carries a pinned stable-diffusion.cpp patch that caches the dedicated model's reference K/V tensors after the first denoising step. This is separate from approximate diffusion caches. |
 
 The exact default remains cache-disabled. Persistent context reuse changes no
 pixels and is safe as the default serving architecture. Denoiser caches are
@@ -47,9 +48,11 @@ approximate and remain explicit opt-ins.
 - SGLang's Spectral Progressive Diffusion is not the same algorithm as
   stable-diffusion.cpp's Spectrum cache. CPDif exposes the pinned native
   Spectrum implementation but does not label it as progressive resolution.
-- FLUX.2 Klein 9B-KV reference-image KV caching is still an open
-  [stable-diffusion.cpp feature request](https://github.com/leejet/stable-diffusion.cpp/issues/1341),
-  so CPDif does not claim that capability.
+- FLUX.2 Klein 9B-KV remains an open upstream
+  [stable-diffusion.cpp feature request](https://github.com/leejet/stable-diffusion.cpp/issues/1341).
+  CPDif therefore carries the implementation as a local pinned patch rather
+  than claiming it is available in unmodified upstream. See
+  [the dedicated implementation and validation contract](KLEIN_KV_CACHE.md).
 
 ## Reproduce the gate
 

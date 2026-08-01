@@ -46,6 +46,7 @@ def validate(
         "steps",
         "seed",
         "rng",
+        "klein_kv_cache",
         "cache_mode",
         "cache",
         "parameter_residency",

@@ -126,6 +126,7 @@ public:
         params.sampler_rng_type = params.rng_type;
         params.diffusion_flash_attn = true;
         params.vae_format = SD_VAE_FORMAT_FLUX2;
+        params.model_args = config.klein_kv_cache ? "klein_kv_cache=true" : nullptr;
         params.max_vram = config.max_vram.c_str();
         params.stream_layers = config.stream_layers;
         params.params_backend = config.offload_to_cpu ? "*=cpu" : nullptr;

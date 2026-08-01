@@ -38,6 +38,25 @@ class RepositoryContractTests(unittest.TestCase):
 
         self.assertTrue((REPO_ROOT / "CMakeLists.txt").is_file())
 
+    def test_klein_kv_assets_are_pinned(self):
+        patch = REPO_ROOT / "patches" / "stable-diffusion-klein-kv-cache.patch"
+        downloader = REPO_ROOT / "scripts" / "model" / "download_kv_q8_transformer.sh"
+        self.assertTrue(patch.is_file())
+        self.assertIn("klein_kv_cache", patch.read_text(encoding="utf-8"))
+        download_text = downloader.read_text(encoding="utf-8")
+        self.assertIn("QuantStack/FLUX.2-Klein-9B-KV-GGUF", download_text)
+        self.assertIn(
+            "94d7a02ac18b50b2c751c6e2ee82c53a338ab233338700330a7797b6c959e397",
+            download_text,
+        )
+
+    def test_gpu_release_cache_contract_is_versioned(self):
+        restore = REPO_ROOT / "scripts" / "colab" / "10_restore_release_cache.sh"
+        restore_text = restore.read_text(encoding="utf-8")
+        self.assertIn("gpu-build-cache-v3", restore_text)
+        self.assertIn("cpdif-gpu-build-cache-v3-sm", restore_text)
+        self.assertIn("05_restore_cache.sh", restore_text)
+
 
 if __name__ == "__main__":
     unittest.main()
