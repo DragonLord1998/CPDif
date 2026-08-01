@@ -35,6 +35,14 @@ def telemetry_stage_ms(path: Path) -> int:
     )
 
 
+def historical_output_hashes(baseline_gpu: dict[str, Any]) -> dict[str, str]:
+    default = baseline_gpu["default"]
+    return {
+        "cat": str(default["cat_png_sha256"]),
+        "edit": str(default["edit_png_sha256"]),
+    }
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--gpu-key", choices=("a100_40gb", "rtx_pro_6000"), required=True)
@@ -222,10 +230,7 @@ def main() -> int:
         standard["steady_state_pair_ms_median"],
         kv["steady_state_pair_ms_median"],
     )
-    expected_standard_hashes = {
-        "cat": str(baseline_gpu["cat_png_sha256"]),
-        "edit": str(baseline_gpu["edit_png_sha256"]),
-    }
+    expected_standard_hashes = historical_output_hashes(baseline_gpu)
     standard_exact = standard["hashes"][0] == expected_standard_hashes
     same_gpu = standard["gpu"] == kv["gpu"]
     passed = (

@@ -48,6 +48,16 @@ class KleinKvBenchmarkTests(unittest.TestCase):
             )
             self.assertEqual(832, KLEIN_KV.telemetry_stage_ms(path))
 
+    def test_historical_hashes_live_under_default_profile(self):
+        baseline_gpu = {
+            "default": {"cat_png_sha256": "cat", "edit_png_sha256": "edit"},
+            "persistent": {"steady_state_wall_ms_median": 123},
+        }
+        self.assertEqual(
+            {"cat": "cat", "edit": "edit"},
+            KLEIN_KV.historical_output_hashes(baseline_gpu),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
