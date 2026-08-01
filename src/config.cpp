@@ -70,6 +70,40 @@ std::vector<std::string> validate(const RuntimeConfig& config, bool require_file
     if (config.stream_layers && config.max_vram == "0") {
         errors.emplace_back("stream layers requires a non-zero max VRAM budget");
     }
+    if (config.cache.reuse_threshold < -1.0F) {
+        errors.emplace_back("cache threshold must be non-negative or -1 for the backend default");
+    }
+    if (config.cache.start_percent < 0.0F || config.cache.start_percent >= 1.0F ||
+        config.cache.end_percent <= 0.0F || config.cache.end_percent > 1.0F ||
+        config.cache.start_percent >= config.cache.end_percent) {
+        errors.emplace_back("cache range must satisfy 0 <= start < end <= 1");
+    }
+    if (config.cache.fn_compute_blocks < 0 || config.cache.bn_compute_blocks < 0) {
+        errors.emplace_back("cache block counts must be non-negative");
+    }
+    if (config.cache.residual_diff_threshold < 0.0F) {
+        errors.emplace_back("cache residual threshold must be non-negative");
+    }
+    if (config.cache.max_warmup_steps < 0 || config.cache.max_cached_steps < -1 ||
+        config.cache.max_continuous_cached_steps < -1) {
+        errors.emplace_back("cache step limits must be -1 or non-negative");
+    }
+    if (config.cache.taylorseer_order < 1 || config.cache.taylorseer_order > 2) {
+        errors.emplace_back("TaylorSeer order must be 1 or 2");
+    }
+    if (config.cache.taylorseer_skip_interval < 1) {
+        errors.emplace_back("TaylorSeer skip interval must be positive");
+    }
+    if (config.cache.spectrum_w < 0.0F || config.cache.spectrum_w > 1.0F ||
+        config.cache.spectrum_m < 1 || config.cache.spectrum_lambda < 0.0F ||
+        config.cache.spectrum_window_size < 1 ||
+        config.cache.spectrum_flex_window < 0.0F ||
+        config.cache.spectrum_flex_window > 1.0F ||
+        config.cache.spectrum_warmup_steps < 0 ||
+        config.cache.spectrum_stop_percent <= 0.0F ||
+        config.cache.spectrum_stop_percent > 1.0F) {
+        errors.emplace_back("invalid Spectrum cache configuration");
+    }
     return errors;
 }
 
@@ -89,6 +123,24 @@ const char* generation_mode_name(GenerationMode mode) noexcept {
             return "text-to-image";
         case GenerationMode::image_edit:
             return "image-edit";
+    }
+    return "unknown";
+}
+
+const char* cache_mode_name(CacheMode mode) noexcept {
+    switch (mode) {
+        case CacheMode::disabled:
+            return "disabled";
+        case CacheMode::easycache:
+            return "easycache";
+        case CacheMode::dbcache:
+            return "dbcache";
+        case CacheMode::taylorseer:
+            return "taylorseer";
+        case CacheMode::cache_dit:
+            return "cache-dit";
+        case CacheMode::spectrum:
+            return "spectrum";
     }
     return "unknown";
 }

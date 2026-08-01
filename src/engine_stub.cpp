@@ -17,7 +17,7 @@ KleinEngine::~KleinEngine() = default;
 KleinEngine::KleinEngine(KleinEngine&&) noexcept = default;
 KleinEngine& KleinEngine::operator=(KleinEngine&&) noexcept = default;
 
-GenerationMetrics KleinEngine::generate(const RuntimeConfig&) {
+GenerationResult KleinEngine::generate(const RuntimeConfig&, const LoadedImage*) {
     throw std::runtime_error("native backend is unavailable");
 }
 

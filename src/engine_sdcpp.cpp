@@ -6,7 +6,9 @@
 #include <stable-diffusion.h>
 
 #include <chrono>
+#include <cstring>
 #include <iostream>
+#include <limits>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -59,6 +61,50 @@ struct ImagesDeleter {
     }
 };
 
+sd_cache_mode_t to_sd_cache_mode(CacheMode mode) {
+    switch (mode) {
+        case CacheMode::disabled:
+            return SD_CACHE_DISABLED;
+        case CacheMode::easycache:
+            return SD_CACHE_EASYCACHE;
+        case CacheMode::dbcache:
+            return SD_CACHE_DBCACHE;
+        case CacheMode::taylorseer:
+            return SD_CACHE_TAYLORSEER;
+        case CacheMode::cache_dit:
+            return SD_CACHE_CACHE_DIT;
+        case CacheMode::spectrum:
+            return SD_CACHE_SPECTRUM;
+    }
+    return SD_CACHE_DISABLED;
+}
+
+void apply_cache_config(const CacheConfig& source, sd_cache_params_t& target) {
+    target.mode = to_sd_cache_mode(source.mode);
+    if (source.reuse_threshold >= 0.0F) {
+        target.reuse_threshold = source.reuse_threshold;
+    }
+    target.start_percent = source.start_percent;
+    target.end_percent = source.end_percent;
+    target.Fn_compute_blocks = source.fn_compute_blocks;
+    target.Bn_compute_blocks = source.bn_compute_blocks;
+    target.residual_diff_threshold = source.residual_diff_threshold;
+    target.max_warmup_steps = source.max_warmup_steps;
+    target.max_cached_steps = source.max_cached_steps;
+    target.max_continuous_cached_steps = source.max_continuous_cached_steps;
+    target.taylorseer_n_derivatives = source.taylorseer_order;
+    target.taylorseer_skip_interval = source.taylorseer_skip_interval;
+    target.scm_mask = source.scm_mask.empty() ? nullptr : source.scm_mask.c_str();
+    target.scm_policy_dynamic = source.scm_policy_dynamic;
+    target.spectrum_w = source.spectrum_w;
+    target.spectrum_m = source.spectrum_m;
+    target.spectrum_lam = source.spectrum_lambda;
+    target.spectrum_window_size = source.spectrum_window_size;
+    target.spectrum_flex_window = source.spectrum_flex_window;
+    target.spectrum_warmup_steps = source.spectrum_warmup_steps;
+    target.spectrum_stop_percent = source.spectrum_stop_percent;
+}
+
 }  // namespace
 
 class KleinEngine::Impl {
@@ -95,15 +141,31 @@ public:
         }
     }
 
-    GenerationMetrics generate(const RuntimeConfig& config) {
+    GenerationResult generate(
+        const RuntimeConfig& config,
+        const LoadedImage* in_memory_reference) {
         LoadedImage reference_image;
         sd_image_t reference_view{};
         if (config.mode == GenerationMode::image_edit) {
-            reference_image = load_rgb_image(config.reference_image_path);
-            reference_view.width = static_cast<std::uint32_t>(reference_image.width);
-            reference_view.height = static_cast<std::uint32_t>(reference_image.height);
-            reference_view.channel = static_cast<std::uint32_t>(reference_image.channels);
-            reference_view.data = reference_image.pixels.data();
+            if (in_memory_reference != nullptr) {
+                reference_view.width =
+                    static_cast<std::uint32_t>(in_memory_reference->width);
+                reference_view.height =
+                    static_cast<std::uint32_t>(in_memory_reference->height);
+                reference_view.channel =
+                    static_cast<std::uint32_t>(in_memory_reference->channels);
+                reference_view.data = const_cast<std::uint8_t*>(
+                    in_memory_reference->pixels.data());
+            } else {
+                const auto reference_begin = Clock::now();
+                reference_image = load_rgb_image(config.reference_image_path);
+                reference_load_ms_ = elapsed_ms(reference_begin);
+                reference_view.width = static_cast<std::uint32_t>(reference_image.width);
+                reference_view.height = static_cast<std::uint32_t>(reference_image.height);
+                reference_view.channel =
+                    static_cast<std::uint32_t>(reference_image.channels);
+                reference_view.data = reference_image.pixels.data();
+            }
         }
 
         sd_img_gen_params_t params;
@@ -126,6 +188,7 @@ public:
         params.sample_params.sample_method = sd_get_default_sample_method(context_.get());
         params.sample_params.scheduler = sd_get_default_scheduler(
             context_.get(), params.sample_params.sample_method);
+        apply_cache_config(config.cache, params.cache);
 
         sd_image_t* images = nullptr;
         int image_count = 0;
@@ -138,6 +201,18 @@ public:
             throw std::runtime_error("FLUX.2 Klein generation failed");
         }
 
+        const std::size_t pixel_count =
+            static_cast<std::size_t>(images[0].width) *
+            static_cast<std::size_t>(images[0].height) *
+            static_cast<std::size_t>(images[0].channel);
+        LoadedImage generated_image;
+        generated_image.width = static_cast<int>(images[0].width);
+        generated_image.height = static_cast<int>(images[0].height);
+        generated_image.channels = static_cast<int>(images[0].channel);
+        generated_image.pixels.resize(pixel_count);
+        std::memcpy(
+            generated_image.pixels.data(), images[0].data, generated_image.pixels.size());
+
         const auto write_begin = Clock::now();
         write_png(
             config.output_path,
@@ -147,18 +222,25 @@ public:
             images[0].data);
         const auto image_write_ms = elapsed_ms(write_begin);
 
-        GenerationMetrics metrics;
-        metrics.load_ms = load_ms_;
-        metrics.generation_ms = generation_ms;
-        metrics.image_write_ms = image_write_ms;
-        metrics.backend_info = sd_get_system_info();
-        return metrics;
+        GenerationResult result;
+        result.metrics.load_ms = generation_count_ == 0 ? load_ms_ : 0;
+        result.metrics.reference_load_ms = reference_load_ms_;
+        result.metrics.generation_ms = generation_ms;
+        result.metrics.image_write_ms = image_write_ms;
+        result.metrics.context_reused = generation_count_ > 0;
+        result.metrics.backend_info = sd_get_system_info();
+        result.image = std::move(generated_image);
+        reference_load_ms_ = 0;
+        ++generation_count_;
+        return result;
     }
 
 private:
     bool verbose_logging_ = false;
     std::unique_ptr<sd_ctx_t, ContextDeleter> context_;
     std::int64_t load_ms_ = 0;
+    std::int64_t reference_load_ms_ = 0;
+    std::uint64_t generation_count_ = 0;
 };
 
 KleinEngine::KleinEngine(const RuntimeConfig& config)
@@ -168,8 +250,10 @@ KleinEngine::~KleinEngine() = default;
 KleinEngine::KleinEngine(KleinEngine&&) noexcept = default;
 KleinEngine& KleinEngine::operator=(KleinEngine&&) noexcept = default;
 
-GenerationMetrics KleinEngine::generate(const RuntimeConfig& config) {
-    return impl_->generate(config);
+GenerationResult KleinEngine::generate(
+    const RuntimeConfig& config,
+    const LoadedImage* in_memory_reference) {
+    return impl_->generate(config, in_memory_reference);
 }
 
 bool native_backend_available() noexcept {

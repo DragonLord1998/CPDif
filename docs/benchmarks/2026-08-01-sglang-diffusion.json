@@ -1,0 +1,142 @@
+{
+  "gpu_results": {
+    "a100_40gb": {
+      "cache_profiles": [
+        {
+          "cat_png_sha256": "367f6b5a0899801c75c555551570807a35fbbed31d295895d12e74c7c9ab462c",
+          "edit_png_sha256": "c121d40bcfd03f2620a6acbfb7d8fd295616f7bc78ad0e54aa8b0ce6b559f3bb",
+          "images_valid": true,
+          "mode": "easycache",
+          "returncode": 0,
+          "wall_ms": 26424
+        },
+        {
+          "cat_png_sha256": "cb98377542382da3d7ded2162b9b519be1ca5504deb5b3bc8cdfcc2f7de4fc82",
+          "edit_png_sha256": "02b8473faab519cacf59faa7aa5d5d323793abb8a9029df901662f163f48b583",
+          "images_valid": true,
+          "mode": "dbcache",
+          "returncode": 0,
+          "wall_ms": 18402
+        },
+        {
+          "cat_png_sha256": "cb98377542382da3d7ded2162b9b519be1ca5504deb5b3bc8cdfcc2f7de4fc82",
+          "edit_png_sha256": "02b8473faab519cacf59faa7aa5d5d323793abb8a9029df901662f163f48b583",
+          "images_valid": true,
+          "mode": "taylorseer",
+          "returncode": 0,
+          "wall_ms": 18357
+        },
+        {
+          "cat_png_sha256": "cb98377542382da3d7ded2162b9b519be1ca5504deb5b3bc8cdfcc2f7de4fc82",
+          "edit_png_sha256": "02b8473faab519cacf59faa7aa5d5d323793abb8a9029df901662f163f48b583",
+          "images_valid": true,
+          "mode": "cache-dit",
+          "returncode": 0,
+          "wall_ms": 18409
+        },
+        {
+          "cat_png_sha256": "248636afe2d2ec4d49b9ec3fa1d89ad98e58c73a17afbb0bb2f78f265d1f14dd",
+          "edit_png_sha256": "1839a70ec8f0c85e4090d6d9d03d72a51cbd9915140d0dbc14b3063394c23a47",
+          "images_valid": true,
+          "mode": "spectrum",
+          "returncode": 0,
+          "wall_ms": 22418
+        }
+      ],
+      "default": {
+        "cat_png_sha256": "367f6b5a0899801c75c555551570807a35fbbed31d295895d12e74c7c9ab462c",
+        "edit_png_sha256": "c121d40bcfd03f2620a6acbfb7d8fd295616f7bc78ad0e54aa8b0ce6b559f3bb",
+        "exact_output_match": true,
+        "wall_ms_median": 26246,
+        "wall_ms_samples": [26672, 26246, 26246]
+      },
+      "gpu": {
+        "compute_capability": "8.0",
+        "driver_version": "580.82.07",
+        "memory_total_mib": 40960,
+        "name": "NVIDIA A100-SXM4-40GB"
+      },
+      "memory_total_mib": 40960,
+      "peak_vram_mib": 29662,
+      "persistent": {
+        "exact_output_match": true,
+        "images_valid": true,
+        "steady_state_wall_ms_median": 18858,
+        "steady_state_wall_ms_samples": [18886, 18831],
+        "wall_ms": 64176
+      }
+    },
+    "rtx_pro_6000": {
+      "cache_profiles": [
+        {
+          "cat_png_sha256": "950528da35aa82cea263fdade7f51cf7a35ac54a68fff641869e329a4afd9ab4",
+          "edit_png_sha256": "052de78511692d2a7caffd40bf9b44ac4729209de524446ec1d0c36dd2d8de40",
+          "images_valid": true,
+          "mode": "easycache",
+          "returncode": 0,
+          "wall_ms": 10488
+        },
+        {
+          "cat_png_sha256": "6fa216d624448821cafaee400b4c6edb48503ad8f926dd8e6fbf5db76449c8f6",
+          "edit_png_sha256": "bc778d04d56710aee52b195ca531b3c7e4a6620e98342b9ead00832f6997a340",
+          "images_valid": true,
+          "mode": "dbcache",
+          "returncode": 0,
+          "wall_ms": 7211
+        },
+        {
+          "cat_png_sha256": "6fa216d624448821cafaee400b4c6edb48503ad8f926dd8e6fbf5db76449c8f6",
+          "edit_png_sha256": "bc778d04d56710aee52b195ca531b3c7e4a6620e98342b9ead00832f6997a340",
+          "images_valid": true,
+          "mode": "taylorseer",
+          "returncode": 0,
+          "wall_ms": 7187
+        },
+        {
+          "cat_png_sha256": "6fa216d624448821cafaee400b4c6edb48503ad8f926dd8e6fbf5db76449c8f6",
+          "edit_png_sha256": "bc778d04d56710aee52b195ca531b3c7e4a6620e98342b9ead00832f6997a340",
+          "images_valid": true,
+          "mode": "cache-dit",
+          "returncode": 0,
+          "wall_ms": 7192
+        },
+        {
+          "cat_png_sha256": "6c0eaa3f2de9e63793eaf9266f9a769ebdb503f5a004565c65f94ea28a373ea2",
+          "edit_png_sha256": "d4abf3d215dccf0408fc1e45bf5162864c798cb001d6ecc933e00e5a85cb7bd8",
+          "images_valid": true,
+          "mode": "spectrum",
+          "returncode": 0,
+          "wall_ms": 8858
+        }
+      ],
+      "default": {
+        "cat_png_sha256": "950528da35aa82cea263fdade7f51cf7a35ac54a68fff641869e329a4afd9ab4",
+        "edit_png_sha256": "052de78511692d2a7caffd40bf9b44ac4729209de524446ec1d0c36dd2d8de40",
+        "exact_output_match": true,
+        "wall_ms_median": 10485,
+        "wall_ms_samples": [10849, 10485, 10477]
+      },
+      "gpu": {
+        "compute_capability": "12.0",
+        "driver_version": "580.82.07",
+        "memory_total_mib": 97887,
+        "name": "NVIDIA RTX PRO 6000 Blackwell Server Edition"
+      },
+      "memory_total_mib": 97887,
+      "peak_vram_mib": 29809,
+      "persistent": {
+        "exact_output_match": true,
+        "images_valid": true,
+        "steady_state_wall_ms_median": 7774,
+        "steady_state_wall_ms_samples": [7772, 7775],
+        "wall_ms": 26043
+      }
+    }
+  },
+  "schema_version": 1,
+  "tests_passed": true,
+  "visual_acceptance": {
+    "cat": "pass",
+    "same_cat_suit_edit": "pass"
+  }
+}

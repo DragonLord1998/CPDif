@@ -67,6 +67,20 @@ int main() {
         return 1;
     }
 
+    valid.qwen_image_layers = 3;
+    valid.cache.mode = cpdif::CacheMode::cache_dit;
+    valid.cache.max_warmup_steps = -1;
+    if (!contains(cpdif::validate(valid, false), "cache step limits")) {
+        std::cerr << "expected invalid cache warmup to be rejected\n";
+        return 1;
+    }
+    valid.cache.max_warmup_steps = 1;
+    valid.cache.residual_diff_threshold = 0.24F;
+    if (!cpdif::validate(valid, false).empty()) {
+        std::cerr << "expected Cache-DiT configuration to pass validation\n";
+        return 1;
+    }
+
     if (std::string(cpdif::rng_name(cpdif::RngKind::cpu)) != "cpu") {
         std::cerr << "unexpected RNG name\n";
         return 1;
@@ -74,6 +88,11 @@ int main() {
     if (std::string(cpdif::generation_mode_name(cpdif::GenerationMode::image_edit)) !=
         "image-edit") {
         std::cerr << "unexpected generation mode name\n";
+        return 1;
+    }
+    if (std::string(cpdif::cache_mode_name(cpdif::CacheMode::cache_dit)) !=
+        "cache-dit") {
+        std::cerr << "unexpected cache mode name\n";
         return 1;
     }
     return 0;

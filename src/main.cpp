@@ -29,6 +29,7 @@ struct GenerateEditOptions {
     std::string telemetry_path;
     std::int64_t seed = 0;
     bool seed_is_set = false;
+    int repeat = 1;
 };
 
 void print_help() {
@@ -66,9 +67,53 @@ void print_help() {
         << "  --offload-to-cpu       Keep parameters in RAM until their compute stage\n"
         << "  --no-offload-to-cpu    Keep parameters on the compute backend\n"
         << "  --rng cpu|cuda         Noise RNG (default: cpu for reproducibility)\n"
+        << "  --cache MODE           disabled|easycache|dbcache|taylorseer|cache-dit|spectrum\n"
+        << "  --cache-threshold F    EasyCache reuse threshold (-1: backend default)\n"
+        << "  --cache-start F        First cache-eligible denoise fraction (default: 0.15)\n"
+        << "  --cache-end F          Last cache-eligible denoise fraction (default: 0.95)\n"
+        << "  --cache-fn N           First DiT blocks always computed (default: 1)\n"
+        << "  --cache-bn N           Last DiT blocks always computed (default: 0)\n"
+        << "  --cache-rdt F          Cache-DiT residual threshold (default: 0.24)\n"
+        << "  --cache-warmup N       Cache-DiT warmup steps (default: 4)\n"
+        << "  --cache-max-steps N    Total cached-step limit (-1: unlimited)\n"
+        << "  --cache-max-continuous N  Consecutive cached-step limit (default: 3)\n"
+        << "  --cache-scm-mask TEXT  Cache-DiT step computation mask\n"
+        << "  --cache-scm-static     Use the SCM mask without dynamic overrides\n"
+        << "  --taylorseer-order N   Taylor expansion order, 1 or 2\n"
+        << "  --taylorseer-skip N    TaylorSeer skip interval (default: 1)\n"
+        << "  --spectrum-w F         Spectrum frequency cutoff ratio (default: 0.40)\n"
+        << "  --spectrum-m N         Spectrum history order (default: 3)\n"
+        << "  --spectrum-lambda F    Spectrum regularization (default: 1.0)\n"
+        << "  --spectrum-window N    Spectrum history window (default: 2)\n"
+        << "  --spectrum-flex F      Spectrum flexible-window ratio (default: 0.50)\n"
+        << "  --spectrum-warmup N    Spectrum warmup steps (default: 4)\n"
+        << "  --spectrum-stop F      Spectrum stop fraction (default: 0.90)\n"
         << "  --edit-seed N          Seed for generate-edit (default: seed + 1)\n"
         << "  --edited-telemetry P   JSON telemetry for generate-edit's edited image\n"
+        << "  --repeat N             Reuse one loaded context for N generate-edit jobs\n"
+        << "                         (output paths must contain {index} when N > 1)\n"
         << "  --verbose              Include upstream debug-level logging\n";
+}
+
+std::string expand_indexed_path(
+    const std::string& option,
+    const std::string& path,
+    int request_index,
+    int repeat) {
+    if (path.empty()) {
+        return {};
+    }
+    if (repeat == 1) {
+        return path;
+    }
+    constexpr std::string_view token = "{index}";
+    const auto position = path.find(token);
+    if (position == std::string::npos) {
+        throw UsageError(option + " must contain {index} when --repeat is greater than 1");
+    }
+    std::string expanded = path;
+    expanded.replace(position, token.size(), std::to_string(request_index + 1));
+    return expanded;
 }
 
 std::string json_escape(std::string_view value) {
@@ -179,6 +224,66 @@ cpdif::RuntimeConfig parse_config(
             } else {
                 throw UsageError("--rng must be cpu or cuda");
             }
+        } else if (option == "--cache") {
+            const std::string mode_name = value();
+            if (mode_name == "disabled") {
+                config.cache.mode = cpdif::CacheMode::disabled;
+            } else if (mode_name == "easycache") {
+                config.cache.mode = cpdif::CacheMode::easycache;
+            } else if (mode_name == "dbcache") {
+                config.cache.mode = cpdif::CacheMode::dbcache;
+            } else if (mode_name == "taylorseer") {
+                config.cache.mode = cpdif::CacheMode::taylorseer;
+            } else if (mode_name == "cache-dit") {
+                config.cache.mode = cpdif::CacheMode::cache_dit;
+            } else if (mode_name == "spectrum") {
+                config.cache.mode = cpdif::CacheMode::spectrum;
+            } else {
+                throw UsageError(
+                    "--cache must be disabled, easycache, dbcache, taylorseer, "
+                    "cache-dit, or spectrum");
+            }
+        } else if (option == "--cache-threshold") {
+            config.cache.reuse_threshold = parse_float(option, value());
+        } else if (option == "--cache-start") {
+            config.cache.start_percent = parse_float(option, value());
+        } else if (option == "--cache-end") {
+            config.cache.end_percent = parse_float(option, value());
+        } else if (option == "--cache-fn") {
+            config.cache.fn_compute_blocks = parse_integer<int>(option, value());
+        } else if (option == "--cache-bn") {
+            config.cache.bn_compute_blocks = parse_integer<int>(option, value());
+        } else if (option == "--cache-rdt") {
+            config.cache.residual_diff_threshold = parse_float(option, value());
+        } else if (option == "--cache-warmup") {
+            config.cache.max_warmup_steps = parse_integer<int>(option, value());
+        } else if (option == "--cache-max-steps") {
+            config.cache.max_cached_steps = parse_integer<int>(option, value());
+        } else if (option == "--cache-max-continuous") {
+            config.cache.max_continuous_cached_steps =
+                parse_integer<int>(option, value());
+        } else if (option == "--cache-scm-mask") {
+            config.cache.scm_mask = value();
+        } else if (option == "--cache-scm-static") {
+            config.cache.scm_policy_dynamic = false;
+        } else if (option == "--taylorseer-order") {
+            config.cache.taylorseer_order = parse_integer<int>(option, value());
+        } else if (option == "--taylorseer-skip") {
+            config.cache.taylorseer_skip_interval = parse_integer<int>(option, value());
+        } else if (option == "--spectrum-w") {
+            config.cache.spectrum_w = parse_float(option, value());
+        } else if (option == "--spectrum-m") {
+            config.cache.spectrum_m = parse_integer<int>(option, value());
+        } else if (option == "--spectrum-lambda") {
+            config.cache.spectrum_lambda = parse_float(option, value());
+        } else if (option == "--spectrum-window") {
+            config.cache.spectrum_window_size = parse_integer<int>(option, value());
+        } else if (option == "--spectrum-flex") {
+            config.cache.spectrum_flex_window = parse_float(option, value());
+        } else if (option == "--spectrum-warmup") {
+            config.cache.spectrum_warmup_steps = parse_integer<int>(option, value());
+        } else if (option == "--spectrum-stop") {
+            config.cache.spectrum_stop_percent = parse_float(option, value());
         } else if (option == "--stream-layers") {
             config.stream_layers = true;
         } else if (option == "--offload-to-cpu") {
@@ -194,6 +299,8 @@ cpdif::RuntimeConfig parse_config(
         } else if (option == "--edit-seed" && generate_edit_options != nullptr) {
             generate_edit_options->seed = parse_integer<std::int64_t>(option, value());
             generate_edit_options->seed_is_set = true;
+        } else if (option == "--repeat" && generate_edit_options != nullptr) {
+            generate_edit_options->repeat = parse_integer<int>(option, value());
         } else if (option == "--verbose") {
             config.verbose_logging = true;
         } else if (option == "--help" || option == "-h") {
@@ -214,7 +321,8 @@ void print_validation_errors(const std::vector<std::string>& errors) {
 
 void write_telemetry(
     const cpdif::RuntimeConfig& config,
-    const cpdif::GenerationMetrics& metrics) {
+    const cpdif::GenerationMetrics& metrics,
+    int session_request_index = 0) {
     if (config.telemetry_path.empty()) {
         return;
     }
@@ -227,8 +335,9 @@ void write_telemetry(
         throw std::runtime_error("cannot write telemetry: " + config.telemetry_path);
     }
     output << "{\n"
-           << "  \"schema_version\": 2,\n"
+           << "  \"schema_version\": 3,\n"
            << "  \"engine\": \"cpdif-sdcpp\",\n"
+           << "  \"session_request_index\": " << session_request_index << ",\n"
            << "  \"mode\": \"" << cpdif::generation_mode_name(config.mode) << "\",\n"
            << "  \"backend\": \"" << json_escape(metrics.backend_info) << "\",\n"
            << "  \"width\": " << config.width << ",\n"
@@ -236,11 +345,32 @@ void write_telemetry(
            << "  \"steps\": " << config.steps << ",\n"
            << "  \"seed\": " << config.seed << ",\n"
            << "  \"rng\": \"" << cpdif::rng_name(config.rng) << "\",\n"
+           << "  \"cache_mode\": \"" << cpdif::cache_mode_name(config.cache.mode)
+           << "\",\n"
+           << "  \"cache\": {\n"
+           << "    \"reuse_threshold\": " << config.cache.reuse_threshold << ",\n"
+           << "    \"start_percent\": " << config.cache.start_percent << ",\n"
+           << "    \"end_percent\": " << config.cache.end_percent << ",\n"
+           << "    \"fn_compute_blocks\": " << config.cache.fn_compute_blocks << ",\n"
+           << "    \"bn_compute_blocks\": " << config.cache.bn_compute_blocks << ",\n"
+           << "    \"residual_diff_threshold\": "
+           << config.cache.residual_diff_threshold << ",\n"
+           << "    \"max_warmup_steps\": " << config.cache.max_warmup_steps << ",\n"
+           << "    \"max_cached_steps\": " << config.cache.max_cached_steps << ",\n"
+           << "    \"max_continuous_cached_steps\": "
+           << config.cache.max_continuous_cached_steps << ",\n"
+           << "    \"scm_mask\": \"" << json_escape(config.cache.scm_mask) << "\",\n"
+           << "    \"scm_policy\": \""
+           << (config.cache.scm_policy_dynamic ? "dynamic" : "static") << "\"\n"
+           << "  },\n"
            << "  \"parameter_residency\": \""
            << (config.offload_to_cpu ? "cpu" : "cuda") << "\",\n"
            << "  \"stream_layers\": " << (config.stream_layers ? "true" : "false") << ",\n"
            << "  \"max_vram\": \"" << json_escape(config.max_vram) << "\",\n"
            << "  \"load_ms\": " << metrics.load_ms << ",\n"
+           << "  \"context_reused\": "
+           << (metrics.context_reused ? "true" : "false") << ",\n"
+           << "  \"reference_load_ms\": " << metrics.reference_load_ms << ",\n"
            << "  \"generation_ms\": " << metrics.generation_ms << ",\n"
            << "  \"image_write_ms\": " << metrics.image_write_ms << ",\n"
            << "  \"output\": \"" << json_escape(config.output_path) << "\"\n"
@@ -307,6 +437,34 @@ int main(int argc, char** argv) {
                 }
                 generate_edit_options.seed = config.seed + 1;
             }
+            if (generate_edit_options.repeat < 1 || generate_edit_options.repeat > 1000) {
+                throw UsageError("--repeat must be between 1 and 1000");
+            }
+            const auto repeat_offset =
+                static_cast<std::int64_t>(generate_edit_options.repeat - 1) * 2;
+            if (config.seed > std::numeric_limits<std::int64_t>::max() - repeat_offset ||
+                generate_edit_options.seed >
+                    std::numeric_limits<std::int64_t>::max() - repeat_offset) {
+                throw UsageError("seed range overflows across repeated requests");
+            }
+            (void)expand_indexed_path(
+                "--output", config.output_path, 0, generate_edit_options.repeat);
+            (void)expand_indexed_path(
+                "--edited-output",
+                generate_edit_options.output_path,
+                0,
+                generate_edit_options.repeat);
+            if (!config.telemetry_path.empty()) {
+                (void)expand_indexed_path(
+                    "--telemetry", config.telemetry_path, 0, generate_edit_options.repeat);
+            }
+            if (!generate_edit_options.telemetry_path.empty()) {
+                (void)expand_indexed_path(
+                    "--edited-telemetry",
+                    generate_edit_options.telemetry_path,
+                    0,
+                    generate_edit_options.repeat);
+            }
         }
         if (!cpdif::native_backend_available()) {
             std::cerr << "error: native backend unavailable in this build\n";
@@ -314,27 +472,52 @@ int main(int argc, char** argv) {
         }
 
         cpdif::KleinEngine engine(config);
-        const auto metrics = engine.generate(config);
-        write_telemetry(config, metrics);
-        std::cout << "wrote " << config.output_path << " (load=" << metrics.load_ms
-                  << "ms, generate=" << metrics.generation_ms << "ms, encode="
-                  << metrics.image_write_ms << "ms)\n";
-        if (generate_edit) {
-            cpdif::RuntimeConfig edit_config = config;
+        const int request_count = generate_edit ? generate_edit_options.repeat : 1;
+        for (int request_index = 0; request_index < request_count; ++request_index) {
+            cpdif::RuntimeConfig run_config = config;
+            if (generate_edit) {
+                run_config.output_path = expand_indexed_path(
+                    "--output", config.output_path, request_index, request_count);
+                run_config.telemetry_path = expand_indexed_path(
+                    "--telemetry", config.telemetry_path, request_index, request_count);
+                run_config.seed = config.seed + static_cast<std::int64_t>(request_index) * 2;
+            }
+
+            const auto result = engine.generate(run_config);
+            const auto& metrics = result.metrics;
+            write_telemetry(run_config, metrics, request_index);
+            std::cout << "wrote " << run_config.output_path << " (load="
+                      << metrics.load_ms << "ms, generate=" << metrics.generation_ms
+                      << "ms, encode=" << metrics.image_write_ms << "ms)\n";
+            if (!generate_edit) {
+                continue;
+            }
+
+            cpdif::RuntimeConfig edit_config = run_config;
             edit_config.mode = cpdif::GenerationMode::image_edit;
-            edit_config.reference_image_path = config.output_path;
+            edit_config.reference_image_path = run_config.output_path;
             edit_config.prompt = generate_edit_options.prompt;
-            edit_config.output_path = generate_edit_options.output_path;
-            edit_config.telemetry_path = generate_edit_options.telemetry_path;
-            edit_config.seed = generate_edit_options.seed;
+            edit_config.output_path = expand_indexed_path(
+                "--edited-output",
+                generate_edit_options.output_path,
+                request_index,
+                request_count);
+            edit_config.telemetry_path = expand_indexed_path(
+                "--edited-telemetry",
+                generate_edit_options.telemetry_path,
+                request_index,
+                request_count);
+            edit_config.seed = generate_edit_options.seed +
+                               static_cast<std::int64_t>(request_index) * 2;
 
             const auto edit_errors = cpdif::validate(edit_config, true);
             if (!edit_errors.empty()) {
                 print_validation_errors(edit_errors);
                 return 2;
             }
-            const auto edit_metrics = engine.generate(edit_config);
-            write_telemetry(edit_config, edit_metrics);
+            const auto edit_result = engine.generate(edit_config, &result.image);
+            const auto& edit_metrics = edit_result.metrics;
+            write_telemetry(edit_config, edit_metrics, request_index);
             std::cout << "wrote " << edit_config.output_path << " (load="
                       << edit_metrics.load_ms << "ms, generate="
                       << edit_metrics.generation_ms << "ms, encode="

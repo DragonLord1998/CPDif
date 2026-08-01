@@ -43,3 +43,38 @@ Q8 is the validated low-latency profile. The gated BF16 transformer is not
 silently substituted and requires its own fidelity/performance comparison when
 the user explicitly makes a read-only Hugging Face token available in the
 trusted Colab UI.
+
+## Persistent and diffusion-cache pass (2026-08-01)
+
+The SGLang/diffusion.cpp pass retains the same model hashes, prompts, seeds,
+1024x1024 resolution, four steps, CPU RNG, CUDA residency, and pinned backend.
+
+| GPU | Exact default median | Exact persistent steady median | Cache-DiT | Spectrum |
+| --- | ---: | ---: | ---: | ---: |
+| A100-SXM4-40GB | 26.246 s | 18.858 s | 18.409 s | 22.418 s |
+| RTX PRO 6000 Blackwell | 10.485 s | 7.774 s | 7.192 s | 8.858 s |
+
+Persistent execution improved steady-state latency by 28.1% on A100 and 25.9%
+on RTX while preserving the exact default PNG hashes for the matching request.
+It is the recommended serving profile.
+
+Cache-DiT improved the measured pair by 29.9% on A100 and 31.4% on RTX. It
+skipped denoiser computation and changed pixels, as expected for an approximate
+cache. The generated cat and same-cat suit edit were reviewed on both GPUs and
+passed the same identity/composition gate. It remains opt-in.
+
+EasyCache produced bit-exact images for this workload but did not trigger a
+meaningful speedup. DBCache, TaylorSeer, and combined Cache-DiT produced the
+same output hashes and nearly identical latency with the tested four-step
+profile. Spectrum skipped one of four steps and reported an estimated 1.33x
+sampling speedup in the native runtime log.
+
+Peak VRAM remained 29,662 MiB on A100 and 29,809 MiB on RTX. All cache modes
+completed with valid 1024x1024 PNGs, 100% peak GPU utilization, and successful
+telemetry validation. Raw results and hashes are recorded in
+`docs/benchmarks/2026-08-01-sglang-diffusion.json`.
+
+Telemetry is schema 3 for this pass. The benchmark's persistent steady-state
+measurement sums generation, in-memory reference handling, and lossless PNG
+write stages after the first request; model load is excluded because the
+context remains resident.

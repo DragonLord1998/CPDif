@@ -12,7 +12,12 @@ not depend on ComfyUI, a notebook UI, a tunnel, or a Python inference runtime.
 ## Current milestone
 
 - Native C++ CLI with text-to-image, reference-image editing, and a
-  single-context `generate-edit` workflow that avoids reloading the 9B model.
+  single-context `generate-edit` workflow that avoids reloading the 9B model
+  and passes generated pixels directly into the edit stage in memory.
+- Persistent repeated `generate-edit` sessions with indexed outputs, explicit
+  context-reuse telemetry, and no model reload between requests.
+- Opt-in EasyCache, DBCache, TaylorSeer, Cache-DiT, and Spectrum acceleration
+  through the pinned native backend. The exact path remains the default.
 - Native CUDA builds for A100 `sm80` and RTX PRO 6000 Blackwell `sm120`.
 - Automatic parameter residency: the checksum-pinned Q8 profile stays on CUDA
   when model size plus an 8 GiB safety reserve fits; otherwise it streams.
@@ -47,6 +52,19 @@ Measured native performance at 1024x1024 and four steps:
 | RTX PRO 6000 (`sm120`) | 4.348 s median | 5.502 s median | 10.730 s median | 29,809 MiB |
 
 See [the benchmark methodology and evidence](docs/BENCHMARKS.md).
+
+The SGLang/diffusion.cpp optimization pass adds two distinct profiles:
+
+| GPU | Exact default | Exact persistent steady-state | Opt-in Cache-DiT |
+| --- | ---: | ---: | ---: |
+| A100 40GB (`sm80`) | 26.246 s median | 18.858 s median | 18.409 s |
+| RTX PRO 6000 (`sm120`) | 10.485 s median | 7.774 s median | 7.192 s |
+
+Persistent execution preserved the exact output hashes for the matching
+request and is the recommended serving path.
+Cache-DiT skips denoiser work and therefore changes pixels; its cat and
+same-cat suit outputs passed visual review on both GPUs, but it remains opt-in.
+See [the SGLang/diffusion.cpp implementation notes](docs/SGLANG_DIFFUSION.md).
 
 ## A100 build stages
 
@@ -146,9 +164,38 @@ cpdif generate-edit \
   --edited-output cat-in-suit.png --edited-telemetry cat-in-suit.json
 ```
 
+Keep that context alive across multiple jobs by using indexed output paths:
+
+```bash
+cpdif generate-edit \
+  --transformer /models/flux-2-klein-9b-Q8_0.gguf \
+  --text-encoder /models/qwen_3_8b.safetensors \
+  --vae /models/flux2-vae.safetensors \
+  --prompt "a realistic orange tabby cat in a gray studio" \
+  --edit-prompt "Keep the same cat and dress it in a fitted black suit" \
+  --seed 20260731 --edit-seed 20260732 --repeat 3 \
+  --steps 4 --width 1024 --height 1024 --no-offload-to-cpu \
+  --output 'cat-{index}.png' --telemetry 'cat-{index}.json' \
+  --edited-output 'cat-in-suit-{index}.png' \
+  --edited-telemetry 'cat-in-suit-{index}.json'
+```
+
+For the visually validated four-step Cache-DiT profile, add:
+
+```text
+--cache cache-dit --cache-warmup 1 --cache-max-continuous 1 \
+--cache-fn 1 --cache-rdt 0.24
+```
+
+Cache options are deliberately explicit because thresholds and warmup values
+are model- and step-count-sensitive. Run
+`scripts/colab/08_sglang_diffusion_validation.sh` to reproduce the complete
+exact, persistent, and cache-mode matrix on either supported Colab GPU.
+
 `scripts/colab/06_cat_and_suit.sh` runs the required two-image acceptance path:
-it uses `cpdif generate-edit` to generate one cat and pass that exact PNG back
-as the edit reference without destroying and recreating the inference context.
+it uses `cpdif generate-edit` to generate one cat, write its lossless PNG, and
+pass the same RGB pixels directly to the edit stage without decoding the PNG or
+destroying and recreating the inference context.
 
 ## Offline validation build
 
