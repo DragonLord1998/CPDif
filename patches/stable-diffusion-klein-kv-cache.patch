@@ -244,7 +244,7 @@ index 375576c..cbd9d58 100644
 +                                          img_modulated,
 +                                          img_mod1.shift,
 +                                          img_mod1.scale,
-+                                          ggml_n_dims(img_mod1.shift) >= 3);
++                                          img_mod1.shift->ne[1] == img_modulated->ne[1]);
              auto img_qkv       = img_attn->pre_attention(ctx, img_modulated);  // q,k,v: [N, n_img_token, n_head, d_head]
              auto img_q         = img_qkv[0];
              auto img_k         = img_qkv[1];
@@ -278,7 +278,7 @@ index 375576c..cbd9d58 100644
 +                                                               img_norm2->forward(ctx, img),
 +                                                               img_mod2.shift,
 +                                                               img_mod2.scale,
-+                                                               ggml_n_dims(img_mod2.shift) >= 3));
++                                                               img_mod2.shift->ne[1] == img->ne[1]));
  
              img = ggml_add(ctx->ggml_ctx, img, ggml_mul(ctx->ggml_ctx, img_mlp_out, img_mod2.gate));
  
@@ -305,7 +305,7 @@ index 375576c..cbd9d58 100644
 +                                        pre_norm->forward(ctx, x),
 +                                        mod.shift,
 +                                        mod.scale,
-+                                        ggml_n_dims(mod.shift) >= 3);
++                                        mod.shift->ne[1] == x->ne[1]);
              auto qkv_mlp = linear1->forward(ctx, x_mod);  // [N, n_token, hidden_size * 3 + mlp_hidden_dim*mlp_mult_factor]
  
              int64_t head_dim = hidden_size / num_heads;

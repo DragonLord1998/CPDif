@@ -42,7 +42,11 @@ class RepositoryContractTests(unittest.TestCase):
         patch = REPO_ROOT / "patches" / "stable-diffusion-klein-kv-cache.patch"
         downloader = REPO_ROOT / "scripts" / "model" / "download_kv_q8_transformer.sh"
         self.assertTrue(patch.is_file())
-        self.assertIn("klein_kv_cache", patch.read_text(encoding="utf-8"))
+        patch_text = patch.read_text(encoding="utf-8")
+        self.assertIn("klein_kv_cache", patch_text)
+        self.assertIn("img_mod1.shift->ne[1] == img_modulated->ne[1]", patch_text)
+        self.assertIn("mod.shift->ne[1] == x->ne[1]", patch_text)
+        self.assertNotIn("ggml_n_dims(img_mod1.shift)", patch_text)
         download_text = downloader.read_text(encoding="utf-8")
         self.assertIn("QuantStack/FLUX.2-Klein-9B-KV-GGUF", download_text)
         self.assertIn(
