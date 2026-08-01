@@ -43,6 +43,13 @@ def historical_output_hashes(baseline_gpu: dict[str, Any]) -> dict[str, str]:
     }
 
 
+def graph_memory_args(gpu_key: str) -> list[str]:
+    """Keep the 1024px KV graph inside the A100 40GB residency envelope."""
+    if gpu_key == "a100_40gb":
+        return ["--max-vram", "8"]
+    return []
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--gpu-key", choices=("a100_40gb", "rtx_pro_6000"), required=True)
@@ -94,6 +101,7 @@ def run_profile(
         "--qwen-image-layers",
         "3",
         "--no-offload-to-cpu",
+        *graph_memory_args(args.gpu_key),
         "--prompt",
         cat_prompt,
         "--edit-prompt",

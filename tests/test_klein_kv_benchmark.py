@@ -58,6 +58,13 @@ class KleinKvBenchmarkTests(unittest.TestCase):
             KLEIN_KV.historical_output_hashes(baseline_gpu),
         )
 
+    def test_a100_uses_bounded_graph_segments_without_weight_offload(self):
+        self.assertEqual(
+            ["--max-vram", "8"],
+            KLEIN_KV.graph_memory_args("a100_40gb"),
+        )
+        self.assertEqual([], KLEIN_KV.graph_memory_args("rtx_pro_6000"))
+
 
 if __name__ == "__main__":
     unittest.main()

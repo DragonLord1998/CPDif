@@ -1,8 +1,257 @@
+diff --git a/src/core/ggml_extend.hpp b/src/core/ggml_extend.hpp
+index d14d287..8f09ff5 100644
+--- a/src/core/ggml_extend.hpp
++++ b/src/core/ggml_extend.hpp
+@@ -1695,6 +1695,7 @@ struct GGMLRunnerContext {
+     std::vector<std::pair<ggml_tensor*, std::string>>* debug_tensors = nullptr;
+     std::function<ggml_tensor*(const std::string&)> get_cache_tensor;
+     std::function<void(const std::string&, ggml_tensor*)> cache_tensor;
++    std::function<void(const std::string&, ggml_tensor*)> cache_tensor_persistent;
+     std::function<void(ggml_tensor*, const void*)> set_backend_tensor_data;
+ 
+     void capture_tensor(const std::string& name, ggml_tensor* tensor) {
+@@ -1716,10 +1717,10 @@ struct GGMLRunnerContext {
+     }
+ 
+     void persist_cache_tensor(const std::string& name, ggml_tensor* tensor) const {
+-        if (!cache_tensor || tensor == nullptr) {
++        if (!cache_tensor_persistent || tensor == nullptr) {
+             return;
+         }
+-        cache_tensor(name, tensor);
++        cache_tensor_persistent(name, tensor);
+     }
+ 
+     void bind_backend_tensor_data(ggml_tensor* tensor, const void* data) const {
+@@ -1743,6 +1744,9 @@ protected:
+     ggml_context* cache_ctx            = nullptr;
+     ggml_backend_buffer_t cache_buffer = nullptr;
+ 
++    ggml_context* persistent_cache_ctx            = nullptr;
++    ggml_backend_buffer_t persistent_cache_buffer = nullptr;
++
+     ggml_context* compute_ctx    = nullptr;
+     ggml_gallocr* compute_allocr = nullptr;
+ 
+@@ -1772,6 +1776,8 @@ protected:
+ 
+     std::map<ggml_tensor*, const void*> backend_tensor_data_map;
+     std::map<std::string, ggml_tensor*> cache_tensor_map;  // name -> tensor
++    std::map<std::string, ggml_tensor*> persistent_cache_tensor_map;
++    std::unordered_set<std::string> persistent_cache_tensor_names;
+     std::vector<std::pair<ggml_tensor*, std::string>> debug_tensors;
+     const std::string final_result_name = "ggml_runner_final_result_tensor";
+ 
+@@ -1843,6 +1849,16 @@ protected:
+         GGML_ASSERT(cache_ctx != nullptr);
+     }
+ 
++    void alloc_persistent_cache_ctx() {
++        ggml_init_params params;
++        params.mem_size   = static_cast<size_t>(MAX_PARAMS_TENSOR_NUM * ggml_tensor_overhead());
++        params.mem_buffer = nullptr;
++        params.no_alloc   = true;
++
++        persistent_cache_ctx = ggml_init(params);
++        GGML_ASSERT(persistent_cache_ctx != nullptr);
++    }
++
+     void free_cache_ctx() {
+         if (cache_ctx != nullptr) {
+             ggml_free(cache_ctx);
+@@ -1850,6 +1866,13 @@ protected:
+         }
+     }
+ 
++    void free_persistent_cache_ctx() {
++        if (persistent_cache_ctx != nullptr) {
++            ggml_free(persistent_cache_ctx);
++            persistent_cache_ctx = nullptr;
++        }
++    }
++
+     void alloc_compute_ctx() {
+         ggml_init_params params;
+         params.mem_size   = static_cast<size_t>(ggml_tensor_overhead() * MAX_GRAPH_SIZE + ggml_graph_overhead());
+@@ -2018,6 +2041,11 @@ protected:
+                 ggml_build_forward_expand(gf, entry.second);
+             }
+         }
++        for (const auto& entry : persistent_cache_tensor_map) {
++            if (entry.second != nullptr) {
++                ggml_build_forward_expand(gf, entry.second);
++            }
++        }
+         prepare_build_in_tensor_after(gf);
+         return gf;
+     }
+@@ -2214,16 +2242,20 @@ protected:
+         cache_ctx                              = nullptr;
+         cache_buffer                           = nullptr;
+         std::map<std::string, ggml_tensor*> merged_cache_sources;
++        auto should_keep_cache_tensor = [&](const std::string& name) {
++            return cache_keep_names == nullptr ||
++                   cache_keep_names->find(name) != cache_keep_names->end();
++        };
+         if (old_cache_ctx != nullptr) {
+             for (ggml_tensor* tensor = ggml_get_first_tensor(old_cache_ctx); tensor != nullptr; tensor = ggml_get_next_tensor(old_cache_ctx, tensor)) {
+-                if (cache_keep_names != nullptr && cache_keep_names->find(tensor->name) == cache_keep_names->end()) {
++                if (!should_keep_cache_tensor(tensor->name)) {
+                     continue;
+                 }
+                 merged_cache_sources[tensor->name] = tensor;
+             }
+         }
+         for (const auto& kv : cache_tensor_map) {
+-            if (cache_keep_names != nullptr && cache_keep_names->find(kv.first) == cache_keep_names->end()) {
++            if (!should_keep_cache_tensor(kv.first)) {
+                 continue;
+             }
+             merged_cache_sources[kv.first] = kv.second;
+@@ -2295,6 +2327,62 @@ protected:
+         return true;
+     }
+ 
++    bool copy_pending_persistent_cache_tensors() {
++        if (persistent_cache_tensor_map.empty()) {
++            return true;
++        }
++
++        std::map<std::string, ggml_tensor*> merged_cache_sources;
++        if (persistent_cache_ctx != nullptr) {
++            for (ggml_tensor* tensor = ggml_get_first_tensor(persistent_cache_ctx); tensor != nullptr; tensor = ggml_get_next_tensor(persistent_cache_ctx, tensor)) {
++                merged_cache_sources[tensor->name] = tensor;
++            }
++        }
++
++        bool added_source = false;
++        std::map<std::string, ggml_tensor*> deferred_cache_sources;
++        for (const auto& kv : persistent_cache_tensor_map) {
++            ggml_tensor* source_tensor = sd::ggml_graph_cut::cache_source_tensor(kv.second);
++            if (sd::ggml_graph_cut::tensor_buffer(source_tensor) == nullptr) {
++                deferred_cache_sources[kv.first] = kv.second;
++                continue;
++            }
++            merged_cache_sources[kv.first] = source_tensor;
++            added_source = true;
++        }
++        persistent_cache_tensor_map = std::move(deferred_cache_sources);
++        if (!added_source) {
++            return true;
++        }
++
++        ggml_context* old_cache_ctx            = persistent_cache_ctx;
++        ggml_backend_buffer_t old_cache_buffer = persistent_cache_buffer;
++        persistent_cache_ctx                   = nullptr;
++        persistent_cache_buffer                = nullptr;
++        alloc_persistent_cache_ctx();
++
++        std::vector<std::pair<ggml_tensor*, ggml_tensor*>> source_to_cache_tensors;
++        source_to_cache_tensors.reserve(merged_cache_sources.size());
++        for (const auto& kv : merged_cache_sources) {
++            auto cache_tensor = ggml_dup_tensor(persistent_cache_ctx, kv.second);
++            ggml_set_name(cache_tensor, kv.first.c_str());
++            source_to_cache_tensors.push_back({kv.second, cache_tensor});
++        }
++        persistent_cache_buffer = ggml_backend_alloc_ctx_tensors(persistent_cache_ctx, runtime_backend);
++        GGML_ASSERT(persistent_cache_buffer != nullptr);
++        for (const auto& kv : source_to_cache_tensors) {
++            ggml_backend_tensor_copy(kv.first, kv.second);
++        }
++        ggml_backend_synchronize(runtime_backend);
++        if (old_cache_buffer != nullptr) {
++            ggml_backend_buffer_free(old_cache_buffer);
++        }
++        if (old_cache_ctx != nullptr) {
++            ggml_free(old_cache_ctx);
++        }
++        return true;
++    }
++
+     template <typename T>
+     std::optional<sd::Tensor<T>> read_graph_tensor(ggml_tensor* tensor, const char* label) {
+         if (tensor == nullptr) {
+@@ -2855,6 +2943,9 @@ protected:
+         if (!copy_cache_tensors_to_cache_buffer(cache_keep_names)) {
+             return std::nullopt;
+         }
++        if (!copy_pending_persistent_cache_tensors()) {
++            return std::nullopt;
++        }
+         auto result = ggml_get_tensor(compute_ctx, final_result_name.c_str());
+         std::optional<sd::Tensor<T>> output;
+         if (!no_return) {
+@@ -2887,7 +2978,6 @@ protected:
+         GGML_ASSERT(gf != nullptr);
+ 
+         free_compute_buffer();
+-        free_cache_ctx_and_buffer();
+ 
+         std::unordered_map<ggml_tensor*, PersistentExternalBinding> persistent_externals;
+         snapshot_persistent_externals(plan, gf, persistent_externals);
+@@ -2984,6 +3074,7 @@ public:
+         free_params_ctx();
+         free_compute_ctx();
+         free_cache_ctx_and_buffer();
++        free_persistent_cache_ctx_and_buffer();
+         if (cpu_fallback_backend != nullptr) {
+             ggml_backend_free(cpu_fallback_backend);
+             cpu_fallback_backend = nullptr;
+@@ -3006,6 +3097,13 @@ public:
+         runner_ctx.cache_tensor = [this](const std::string& name, ggml_tensor* tensor) {
+             this->cache(name, tensor);
+         };
++        runner_ctx.cache_tensor_persistent = [this](const std::string& name, ggml_tensor* tensor) {
++            if (tensor != nullptr && tensor->view_src != nullptr) {
++                tensor = ggml_cont(this->compute_ctx, tensor);
++            }
++            this->persistent_cache_tensor_map[name] = tensor;
++            this->persistent_cache_tensor_names.insert(name);
++        };
+         runner_ctx.set_backend_tensor_data = [this](ggml_tensor* tensor, const void* data) {
+             this->set_backend_tensor_data(tensor, data);
+         };
+@@ -3018,6 +3116,22 @@ public:
+     }
+ 
+ public:
++    void clear_persistent_cache_tensors() {
++        cache_tensor_map.clear();
++        persistent_cache_tensor_map.clear();
++        persistent_cache_tensor_names.clear();
++        free_cache_ctx_and_buffer();
++        free_persistent_cache_ctx_and_buffer();
++    }
++
++    void free_persistent_cache_ctx_and_buffer() {
++        if (persistent_cache_buffer != nullptr) {
++            ggml_backend_buffer_free(persistent_cache_buffer);
++            persistent_cache_buffer = nullptr;
++        }
++        free_persistent_cache_ctx();
++    }
++
+     void free_cache_ctx_and_buffer() {
+         free_cache_buffer();
+         free_cache_ctx();
+@@ -3090,6 +3204,12 @@ public:
+     }
+ 
+     ggml_tensor* get_cache_tensor_by_name(const std::string& name) {
++        if (persistent_cache_ctx != nullptr) {
++            ggml_tensor* persistent = ggml_get_tensor(persistent_cache_ctx, name.c_str());
++            if (persistent != nullptr) {
++                return persistent;
++            }
++        }
+         if (cache_ctx == nullptr) {
+             return nullptr;
+         }
 diff --git a/src/model/diffusion/flux.hpp b/src/model/diffusion/flux.hpp
-index 375576c..cbd9d58 100644
+index 375576c..348d578 100644
 --- a/src/model/diffusion/flux.hpp
 +++ b/src/model/diffusion/flux.hpp
-@@ -427,6 +427,219 @@ namespace Flux {
+@@ -427,6 +427,224 @@ namespace Flux {
          return x;
      }
  
@@ -145,15 +394,20 @@ index 375576c..cbd9d58 100644
 +                                                       int64_t text_tokens,
 +                                                       int64_t reference_tokens,
 +                                                       bool extract,
-+                                                       const std::string& cache_prefix) {
++                                                       const std::string& cache_prefix,
++                                                       const std::string& cache_group) {
 +        q = Rope::apply_rope(ctx->ggml_ctx, q, pe, true);
 +        k = Rope::apply_rope(ctx->ggml_ctx, k, pe, true);
 +
 +        ggml_tensor* reference_k = nullptr;
 +        ggml_tensor* reference_v = nullptr;
 +        if (extract) {
-+            reference_k = token_view_3d(ctx->ggml_ctx, k, text_tokens, reference_tokens);
-+            reference_v = token_view_4d(ctx->ggml_ctx, v, text_tokens, reference_tokens);
++            reference_k = ggml_cont(ctx->ggml_ctx,
++                                    token_view_3d(ctx->ggml_ctx, k, text_tokens, reference_tokens));
++            reference_v = ggml_cont(ctx->ggml_ctx,
++                                    token_view_4d(ctx->ggml_ctx, v, text_tokens, reference_tokens));
++            sd::ggml_graph_cut::mark_graph_cut(reference_k, cache_group, "klein_kv_k");
++            sd::ggml_graph_cut::mark_graph_cut(reference_v, cache_group, "klein_kv_v");
 +            ctx->persist_cache_tensor(cache_prefix + ".k", reference_k);
 +            ctx->persist_cache_tensor(cache_prefix + ".v", reference_v);
 +        } else {
@@ -222,7 +476,7 @@ index 375576c..cbd9d58 100644
      struct DoubleStreamBlock : public GGMLBlock {
          bool prune_mod;
          int idx = 0;
-@@ -497,7 +710,11 @@ namespace Flux {
+@@ -497,7 +715,11 @@ namespace Flux {
                                                        ggml_tensor* pe,
                                                        ggml_tensor* mask                   = nullptr,
                                                        std::vector<ModulationOut> img_mods = {},
@@ -235,7 +489,7 @@ index 375576c..cbd9d58 100644
              // img: [N, n_img_token, hidden_size]
              // txt: [N, n_txt_token, hidden_size]
              // pe: [n_img_token + n_txt_token, d_head/2, 2, 2]
-@@ -537,7 +754,11 @@ namespace Flux {
+@@ -537,7 +759,11 @@ namespace Flux {
  
              // prepare image for attention
              auto img_modulated = img_norm1->forward(ctx, img);
@@ -248,7 +502,7 @@ index 375576c..cbd9d58 100644
              auto img_qkv       = img_attn->pre_attention(ctx, img_modulated);  // q,k,v: [N, n_img_token, n_head, d_head]
              auto img_q         = img_qkv[0];
              auto img_k         = img_qkv[1];
-@@ -556,7 +777,18 @@ namespace Flux {
+@@ -556,7 +782,19 @@ namespace Flux {
              auto k = ggml_concat(ctx->ggml_ctx, txt_k, img_k, 2);  // [N, n_txt_token + n_img_token, n_head, d_head]
              auto v = ggml_concat(ctx->ggml_ctx, txt_v, img_v, 2);  // [N, n_txt_token + n_img_token, n_head, d_head]
  
@@ -263,12 +517,13 @@ index 375576c..cbd9d58 100644
 +                                                 txt->ne[1],
 +                                                 num_ref_tokens,
 +                                                 klein_kv_extract,
-+                                                 cache_prefix)
++                                                 cache_prefix,
++                                                 "flux.double_blocks." + std::to_string(idx))
 +                            : Rope::attention(ctx, q, k, v, pe, mask);  // [N, n_txt_token + n_img_token, n_head*d_head]
              auto txt_attn_out = ggml_view_3d(ctx->ggml_ctx,
                                               attn,
                                               attn->ne[0],
-@@ -577,7 +809,12 @@ namespace Flux {
+@@ -577,7 +815,12 @@ namespace Flux {
              // calculate the img bloks
              img = ggml_add(ctx->ggml_ctx, img, ggml_mul(ctx->ggml_ctx, img_attn->post_attention(ctx, img_attn_out), img_mod1.gate));
  
@@ -282,7 +537,7 @@ index 375576c..cbd9d58 100644
  
              img = ggml_add(ctx->ggml_ctx, img, ggml_mul(ctx->ggml_ctx, img_mlp_out, img_mod2.gate));
  
-@@ -644,7 +881,12 @@ namespace Flux {
+@@ -644,7 +887,12 @@ namespace Flux {
                               ggml_tensor* vec,
                               ggml_tensor* pe,
                               ggml_tensor* mask               = nullptr,
@@ -296,7 +551,7 @@ index 375576c..cbd9d58 100644
              // x: [N, n_token, hidden_size]
              // pe: [n_token, d_head/2, 2, 2]
              // return: [N, n_token, hidden_size]
-@@ -667,7 +909,11 @@ namespace Flux {
+@@ -667,7 +915,11 @@ namespace Flux {
                  }
              }
  
@@ -309,7 +564,7 @@ index 375576c..cbd9d58 100644
              auto qkv_mlp = linear1->forward(ctx, x_mod);  // [N, n_token, hidden_size * 3 + mlp_hidden_dim*mlp_mult_factor]
  
              int64_t head_dim = hidden_size / num_heads;
-@@ -681,7 +927,18 @@ namespace Flux {
+@@ -681,7 +933,19 @@ namespace Flux {
  
              q         = norm->query_norm(ctx, q);
              k         = norm->key_norm(ctx, k);
@@ -324,12 +579,13 @@ index 375576c..cbd9d58 100644
 +                                                 num_txt_tokens,
 +                                                 num_ref_tokens,
 +                                                 klein_kv_extract,
-+                                                 cache_prefix)
++                                                 cache_prefix,
++                                                 "flux.single_blocks." + std::to_string(idx))
 +                            : Rope::attention(ctx, q, k, v, pe, mask);  // [N, n_token, hidden_size]
  
              auto mlp = ggml_view_3d(ctx->ggml_ctx, qkv_mlp, mlp_hidden_dim * mlp_mult_factor, qkv_mlp->ne[1], qkv_mlp->ne[2], qkv_mlp->nb[1], qkv_mlp->nb[2], hidden_size * 3 * qkv_mlp->nb[0]);
              if (use_yak_mlp) {
-@@ -1015,7 +1272,10 @@ namespace Flux {
+@@ -1015,7 +1279,10 @@ namespace Flux {
                                    ggml_tensor* mod_index_arange = nullptr,
                                    std::vector<int> skip_layers  = {},
                                    ggml_tensor* pulid_id         = nullptr,
@@ -341,7 +597,7 @@ index 375576c..cbd9d58 100644
              auto img_in      = std::dynamic_pointer_cast<Linear>(blocks["img_in"]);
              auto txt_in      = std::dynamic_pointer_cast<Linear>(blocks["txt_in"]);
              auto final_layer = std::dynamic_pointer_cast<LastLayer>(blocks["final_layer"]);
-@@ -1025,6 +1285,7 @@ namespace Flux {
+@@ -1025,6 +1292,7 @@ namespace Flux {
              }
  
              ggml_tensor* vec;
@@ -349,7 +605,7 @@ index 375576c..cbd9d58 100644
              ggml_tensor* txt_img_mask = nullptr;
              if (config.is_chroma) {
                  int64_t mod_index_length = 344;
-@@ -1059,12 +1320,26 @@ namespace Flux {
+@@ -1059,12 +1327,26 @@ namespace Flux {
              } else {
                  auto time_in = std::dynamic_pointer_cast<MLPEmbedder>(blocks["time_in"]);
                  vec          = time_in->forward(ctx, ggml_ext_timestep_embedding(ctx->ggml_ctx, timesteps, 256, 10000, 1000.f));
@@ -376,7 +632,7 @@ index 375576c..cbd9d58 100644
                  }
  
                  if (config.vec_in_dim > 0) {
-@@ -1084,6 +1359,20 @@ namespace Flux {
+@@ -1084,6 +1366,20 @@ namespace Flux {
                  ds_img_mods = double_stream_modulation_img->forward(ctx, vec);
                  ds_txt_mods = double_stream_modulation_txt->forward(ctx, vec);
                  ss_mods     = single_stream_modulation->forward(ctx, vec);
@@ -397,7 +653,7 @@ index 375576c..cbd9d58 100644
              }
  
              if (config.semantic_txt_norm) {
-@@ -1093,6 +1382,13 @@ namespace Flux {
+@@ -1093,6 +1389,13 @@ namespace Flux {
              }
  
              txt = txt_in->forward(ctx, txt);
@@ -411,7 +667,7 @@ index 375576c..cbd9d58 100644
              sd::ggml_graph_cut::mark_graph_cut(img, "flux.prelude", "img");
              sd::ggml_graph_cut::mark_graph_cut(txt, "flux.prelude", "txt");
              sd::ggml_graph_cut::mark_graph_cut(vec, "flux.prelude", "vec");
-@@ -1111,7 +1407,18 @@ namespace Flux {
+@@ -1111,7 +1414,18 @@ namespace Flux {
  
                  auto block = std::dynamic_pointer_cast<DoubleStreamBlock>(blocks["double_blocks." + std::to_string(i)]);
  
@@ -431,7 +687,7 @@ index 375576c..cbd9d58 100644
                  img          = img_txt.first;   // [N, n_img_token, hidden_size]
                  txt          = img_txt.second;  // [N, n_txt_token, hidden_size]
                  sd::ggml_graph_cut::mark_graph_cut(img, "flux.double_blocks." + std::to_string(i), "img");
-@@ -1135,7 +1442,17 @@ namespace Flux {
+@@ -1135,7 +1449,17 @@ namespace Flux {
                  }
                  auto block = std::dynamic_pointer_cast<SingleStreamBlock>(blocks["single_blocks." + std::to_string(i)]);
  
@@ -450,7 +706,7 @@ index 375576c..cbd9d58 100644
                  sd::ggml_graph_cut::mark_graph_cut(txt_img, "flux.single_blocks." + std::to_string(i), "txt_img");
  
                  if (pulid_run && (i % config.pulid_single_interval == 0)) {
-@@ -1277,7 +1594,10 @@ namespace Flux {
+@@ -1277,7 +1601,10 @@ namespace Flux {
                                           std::vector<ggml_tensor*> ref_latents = {},
                                           std::vector<int> skip_layers          = {},
                                           ggml_tensor* pulid_id                 = nullptr,
@@ -462,7 +718,7 @@ index 375576c..cbd9d58 100644
              GGML_ASSERT(x->ne[3] == 1);
  
              int64_t W      = x->ne[0];
-@@ -1318,17 +1638,29 @@ namespace Flux {
+@@ -1318,17 +1645,29 @@ namespace Flux {
              }
  
              if (ref_latents.size() > 0) {
@@ -495,7 +751,7 @@ index 375576c..cbd9d58 100644
                  out = ggml_cont(ctx->ggml_ctx, out);
              }
  
-@@ -1349,7 +1681,10 @@ namespace Flux {
+@@ -1349,7 +1688,10 @@ namespace Flux {
                               std::vector<ggml_tensor*> ref_latents = {},
                               std::vector<int> skip_layers          = {},
                               ggml_tensor* pulid_id                 = nullptr,
@@ -507,7 +763,7 @@ index 375576c..cbd9d58 100644
              // Forward pass of DiT.
              // x: (N, C, H, W) tensor of spatial inputs (images or latent representations of images)
              // timestep: (N,) tensor of diffusion timesteps
-@@ -1389,7 +1724,10 @@ namespace Flux {
+@@ -1389,7 +1731,10 @@ namespace Flux {
                                             ref_latents,
                                             skip_layers,
                                             pulid_id,
@@ -519,7 +775,7 @@ index 375576c..cbd9d58 100644
              }
          }
      };
-@@ -1404,6 +1742,8 @@ namespace Flux {
+@@ -1404,6 +1749,8 @@ namespace Flux {
          sd::Tensor<float> guidance_tensor;
          SDVersion version;
          bool use_mask = true;
@@ -528,7 +784,7 @@ index 375576c..cbd9d58 100644
  
          FluxRunner(ggml_backend_t backend,
                     const String2TensorStorage& tensor_storage_map      = {},
-@@ -1422,9 +1762,24 @@ namespace Flux {
+@@ -1422,9 +1769,24 @@ namespace Flux {
                      } else {
                          LOG_WARN("ignoring invalid Chroma DiT model arg '%s=%s'", key.c_str(), value.c_str());
                      }
@@ -553,7 +809,7 @@ index 375576c..cbd9d58 100644
              if (config.is_chroma) {
                  LOG_INFO("Using pruned modulation (Chroma)");
              }
-@@ -1501,7 +1856,8 @@ namespace Flux {
+@@ -1501,7 +1863,8 @@ namespace Flux {
                                   Rope::RefIndexMode ref_index_mode                        = Rope::RefIndexMode::FIXED,
                                   std::vector<int> skip_layers                             = {},
                                   const sd::Tensor<float>& pulid_id_tensor                 = {},
@@ -563,7 +819,7 @@ index 375576c..cbd9d58 100644
              ggml_tensor* x         = make_input(x_tensor);
              ggml_tensor* timesteps = make_input(timesteps_tensor);
              ggml_tensor* context   = make_optional_input(context_tensor);
-@@ -1522,6 +1878,9 @@ namespace Flux {
+@@ -1522,6 +1885,9 @@ namespace Flux {
                  ref_latents.push_back(make_input(ref_latent_tensor));
              }
  
@@ -573,7 +829,7 @@ index 375576c..cbd9d58 100644
              GGML_ASSERT(x->ne[3] == 1);
              ggml_cgraph* gf = new_graph_custom(FLUX_GRAPH_SIZE);
  
-@@ -1597,7 +1956,10 @@ namespace Flux {
+@@ -1597,7 +1963,10 @@ namespace Flux {
                                              ref_latents,
                                              skip_layers,
                                              pulid_id,
@@ -585,7 +841,7 @@ index 375576c..cbd9d58 100644
  
              ggml_build_forward_expand(gf, out);
  
-@@ -1615,15 +1977,42 @@ namespace Flux {
+@@ -1615,15 +1984,41 @@ namespace Flux {
                                    Rope::RefIndexMode ref_index_mode                 = Rope::RefIndexMode::FIXED,
                                    std::vector<int> skip_layers                      = std::vector<int>(),
                                    const sd::Tensor<float>& pulid_id                 = {},
@@ -601,8 +857,7 @@ index 375576c..cbd9d58 100644
 +            static const std::vector<sd::Tensor<float>> empty_ref_latents;
 +            const std::vector<sd::Tensor<float>>* active_ref_latents = &ref_latents;
 +            if (klein_kv_cache && step == 1) {
-+                cache_tensor_map.clear();
-+                free_cache_ctx_and_buffer();
++                clear_persistent_cache_tensors();
 +                klein_kv_ref_tokens = 0;
 +                for (const auto& ref : ref_latents) {
 +                    if (ref.dim() >= 2) {
@@ -630,7 +885,7 @@ index 375576c..cbd9d58 100644
              };
  
              auto result = restore_trailing_singleton_dims(GGMLRunner::compute<float>(get_graph, n_threads, false, false, false), x.dim());
-@@ -1648,7 +2037,8 @@ namespace Flux {
+@@ -1648,7 +2043,8 @@ namespace Flux {
                             diffusion_params.ref_image_params.ref_index_mode,
                             extra->skip_layers ? *extra->skip_layers : empty_skip_layers,
                             tensor_or_empty(extra->pulid_id),
