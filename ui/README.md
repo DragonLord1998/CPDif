@@ -1,9 +1,9 @@
 # CPDif Node UI
 
-This is a dependency-free Node 20+ UI for the native `cpdif generate-edit`
-command. It runs one GPU job at a time, uses the dedicated Klein 9B-KV Q8
-checkpoint, verifies KV-cache telemetry, and shows the generated source image,
-edited image, timings, and native process log.
+This is a dependency-free Node 20+ UI for native `cpdif generate`, `edit`, and
+`generate-edit` workflows. It runs one GPU workflow at a time, uses the
+dedicated Klein 9B-KV Q8 checkpoint, verifies KV-cache telemetry for every Edit
+stage, and shows each stage output, timing, and native process log.
 
 The UI does not proxy model weights to a browser and does not invoke a shell.
 Prompts are passed as individual child-process arguments.
@@ -11,10 +11,19 @@ Prompts are passed as individual child-process arguments.
 ## Browser surface
 
 The frontend uses a light visual node canvas inspired by the supplied design
-reference. Its three real stages are Source Prompt,
-FLUX.2 Klein 9B-KV, and Native Output. Nodes can be dragged and resized, the
-canvas can be zoomed or reset, and the output node switches between the source
-and edited PNG while retaining native telemetry, logs, and cancellation.
+reference. Add up to eight FLUX.2 Klein nodes and connect any node to an earlier
+Klein output. Mode is inferred from the image input: a node with no image
+connection is Generate; a node with an image connection is Edit. Disconnecting
+the image immediately returns that node to Generate. Nodes can be dragged and
+resized, the canvas can be zoomed or reset, and the output panel switches among
+all completed stage PNGs while retaining native telemetry, logs, and
+cancellation.
+
+The server validates the same rule independently, rejects forward references
+and cycles, and derives the native command instead of trusting a browser mode
+flag. An adjacent Generate → Edit pair with matching dimensions is fused into
+one native `generate-edit` command so the model context is loaded once. Other
+roots run as `generate`; connected stages run as `edit --reference-image`.
 
 The FLUX node also includes a LoRA asset downloader with adjacent Name and HTTPS
 URL fields. Downloads are streamed into `CPDIF_LORA_DIR` (default:
@@ -71,7 +80,6 @@ No package installation is required:
 npm test
 ```
 
-The initial UI intentionally wraps one `generate-edit` process per submitted
-job. The server serializes jobs to avoid overlapping model allocations. A
+The server serializes workflows to avoid overlapping model allocations. A
 future native serving mode can preserve the already-loaded model across jobs
 without changing this browser/API contract.

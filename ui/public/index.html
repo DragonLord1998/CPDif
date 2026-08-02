@@ -8,7 +8,7 @@
       content="A visual node canvas for CPDif FLUX.2 Klein 9B-KV image generation and editing."
     />
     <title>Klein Studio · CPDif</title>
-    <link rel="stylesheet" href="/styles.css?v=20260802.3" />
+    <link rel="stylesheet" href="/styles.css?v=20260802.7" />
   </head>
   <body>
     <header class="app-header">
@@ -39,7 +39,10 @@
     <main class="workspace" id="workspace">
       <div class="canvas-toolbar">
         <span class="canvas-title">Generation canvas</span>
-        <span class="tip">Drag node headers · Resize from the lower-right corner</span>
+        <span class="tip">No image wire = Generate · Image wire = Edit</span>
+        <button id="add-klein-node" class="add-node-button" type="button">
+          ＋ Klein node
+        </button>
         <div class="zoom" aria-label="Canvas zoom controls">
           <button id="zoom-out" type="button" aria-label="Zoom out">−</button>
           <button id="zoom-value" type="button">100%</button>
@@ -48,156 +51,54 @@
       </div>
 
       <div class="canvas" id="canvas">
-        <svg class="wires" id="wires" aria-hidden="true">
-          <path id="wire-source" class="wire"></path>
-          <path id="wire-output" class="wire output"></path>
-        </svg>
+        <svg class="wires" id="wires" aria-hidden="true"></svg>
 
-        <form id="job-form" class="canvas-form">
-          <section class="node" id="source-node" data-min-w="280" data-min-h="300">
-            <span class="port port-out"></span>
-            <span class="port-label out">Prompt</span>
-            <div class="node-head">
-              <span class="node-icon" aria-hidden="true">✎</span>
-              <span>Source prompt</span>
-              <span class="node-type">Stage 1</span>
+        <form id="job-form" class="canvas-form"></form>
+
+        <section class="execution-card" id="workflow-panel">
+          <div class="lora-head">
+            <span class="lora-icon" aria-hidden="true">↓</span>
+            <div>
+              <strong>LoRA downloads</strong>
+              <small>Stored only · native inference support is not wired yet</small>
             </div>
-            <div class="node-body source-body">
-              <div class="field-label">
-                <span>Describe the source image</span>
-                <span id="prompt-counter">0 / 4000</span>
-              </div>
-              <div class="prompt-wrap">
-                <textarea id="prompt" name="prompt" maxlength="4000" required>A realistic orange tabby cat sitting in a softly lit gray studio, full body, centered composition</textarea>
-              </div>
-              <div class="node-note">
-                <span class="note-icon" aria-hidden="true">◎</span>
-                <div>
-                  <strong>Generated in memory</strong>
-                  <small>The source pixels flow directly into the edit stage.</small>
-                </div>
-              </div>
-            </div>
-            <span class="resize-handle" aria-label="Resize source prompt node"></span>
-          </section>
+            <span id="lora-count" class="execution-count">0 assets</span>
+          </div>
+          <div class="lora-download-row">
+            <label for="lora-name">
+              <span>Name</span>
+              <input id="lora-name" type="text" maxlength="80" autocomplete="off" placeholder="My style" />
+            </label>
+            <label for="lora-url">
+              <span>HTTPS URL</span>
+              <input id="lora-url" type="url" autocomplete="off" spellcheck="false" placeholder="https://…/model.safetensors" />
+            </label>
+            <button id="download-lora" type="button">
+              <span class="lora-button-spinner" aria-hidden="true"></span>
+              <span id="download-lora-text">Download</span>
+            </button>
+          </div>
+          <p id="lora-status" class="lora-status" role="status">Add a safetensors URL and a local name.</p>
+          <ul id="lora-list" class="lora-list" aria-label="Downloaded LoRAs"></ul>
 
-          <section class="node selected" id="flux-node" data-min-w="350" data-min-h="430">
-            <span class="port port-in"></span>
-            <span class="port-label in">Source</span>
-            <span class="port port-out"></span>
-            <span class="port-label out">Output</span>
-            <div class="node-head">
-              <span class="node-icon" aria-hidden="true">◈</span>
-              <span>FLUX.2 Klein 9B-KV</span>
-              <span id="flux-state" class="node-type runtime-state">Checking</span>
-            </div>
-            <div class="node-body flux-body">
-              <div class="field-label">
-                <span>Edit instruction</span>
-                <span>⌘ Enter to run</span>
-              </div>
-              <div class="prompt-wrap">
-                <textarea id="edit-prompt" name="editPrompt" maxlength="4000" required>Keep the same cat, face, pose, fur, lighting, and background. Dress the cat in a fitted black business suit with a white shirt and black tie.</textarea>
-                <span id="edit-counter" class="counter">0 / 4000</span>
-              </div>
-
-              <div class="params">
-                <label class="param" for="size">
-                  <span>Size</span>
-                  <select id="size" name="size">
-                    <option value="512">512 px</option>
-                    <option value="768">768 px</option>
-                    <option value="1024" selected>1024 px</option>
-                  </select>
-                </label>
-                <label class="param" for="seed">
-                  <span>Seed</span>
-                  <input
-                    id="seed"
-                    name="seed"
-                    type="number"
-                    min="0"
-                    max="2147483646"
-                    value="20260731"
-                    required
-                  />
-                </label>
-                <div class="param locked-param">
-                  <span>Steps</span>
-                  <strong>4</strong>
-                </div>
-              </div>
-
-              <div class="actions">
-                <button id="submit-button" class="generate" type="submit">
-                  <span class="spinner" aria-hidden="true"></span>
-                  <span id="generate-text">✦ Generate + edit</span>
-                </button>
-                <button id="cancel-button" class="stop-button" type="button" hidden>Stop</button>
-              </div>
-              <p id="form-error" class="form-error" role="alert"></p>
-            </div>
-
-            <section class="execution-card">
-              <div class="lora-head">
-                <span class="lora-icon" aria-hidden="true">↓</span>
-                <div>
-                  <strong>LoRA downloads</strong>
-                  <small>Stored only · native inference support is not wired yet</small>
-                </div>
-                <span id="lora-count" class="execution-count">0 assets</span>
-              </div>
-              <div class="lora-download-row">
-                <label for="lora-name">
-                  <span>Name</span>
-                  <input
-                    id="lora-name"
-                    type="text"
-                    maxlength="80"
-                    autocomplete="off"
-                    placeholder="My style"
-                  />
-                </label>
-                <label for="lora-url">
-                  <span>HTTPS URL</span>
-                  <input
-                    id="lora-url"
-                    type="url"
-                    autocomplete="off"
-                    spellcheck="false"
-                    placeholder="https://…/model.safetensors"
-                  />
-                </label>
-                <button id="download-lora" type="button">
-                  <span class="lora-button-spinner" aria-hidden="true"></span>
-                  <span id="download-lora-text">Download</span>
-                </button>
-              </div>
-              <p id="lora-status" class="lora-status" role="status">
-                Add a safetensors URL and a local name.
-              </p>
-              <ul id="lora-list" class="lora-list" aria-label="Downloaded LoRAs"></ul>
-
-              <div class="native-divider"></div>
-              <div class="execution-head">
-                <strong>Native execution</strong>
-                <span class="execution-count">Exact path</span>
-                <span id="job-status" class="execution-status">Ready for a prompt</span>
-              </div>
-              <div class="execution-chips" aria-label="Active runtime features">
-                <span>KV cache</span>
-                <span>CUDA</span>
-                <span>Q8</span>
-                <span>CFG 1.0</span>
-              </div>
-              <details class="log-card">
-                <summary>Runtime log</summary>
-                <pre id="job-log">No job has run yet.</pre>
-              </details>
-            </section>
-            <span class="resize-handle" aria-label="Resize FLUX node"></span>
-          </section>
-        </form>
+          <div class="native-divider"></div>
+          <div class="execution-head">
+            <strong>Native workflow</strong>
+            <span id="workflow-summary" class="execution-count">1 Generate</span>
+            <span id="job-status" class="execution-status">Ready for a prompt</span>
+          </div>
+          <div class="execution-chips" aria-label="Active runtime features">
+            <span>Auto mode</span>
+            <span>KV edit cache</span>
+            <span>CUDA</span>
+            <span>Q8</span>
+          </div>
+          <p id="form-error" class="form-error" role="alert"></p>
+          <details class="log-card">
+            <summary>Runtime log</summary>
+            <pre id="job-log">No job has run yet.</pre>
+          </details>
+        </section>
 
         <section class="node" id="output-node" data-min-w="340" data-min-h="400">
           <span class="port port-in"></span>
@@ -212,26 +113,15 @@
             </div>
           </div>
           <div class="output-body">
-            <div class="view-switcher" role="tablist" aria-label="Output image">
-              <button type="button" role="tab" data-view="source">Source</button>
-              <button type="button" role="tab" data-view="edited" class="active" aria-selected="true">Edited</button>
-            </div>
+            <div id="stage-tabs" class="view-switcher" role="tablist" aria-label="Workflow outputs"></div>
 
             <div class="preview-stage">
-              <div class="output-layer" data-output="source" hidden>
-                <img id="source-image" alt="Generated source" hidden />
-                <div id="source-placeholder" class="placeholder">
-                  <span class="placeholder-mark">✦</span>
-                  <strong>Source image</strong>
-                  <small>Created from the source prompt</small>
-                </div>
-              </div>
-              <div class="output-layer active" data-output="edited">
-                <img id="edited-image" alt="Edited result" hidden />
-                <div id="edited-placeholder" class="placeholder">
+              <div class="output-layer active">
+                <img id="output-image" alt="Active workflow output" hidden />
+                <div id="output-placeholder" class="placeholder">
                   <span class="placeholder-mark">◈</span>
-                  <strong>Edited image</strong>
-                  <small>The KV result appears here</small>
+                  <strong>Workflow output</strong>
+                  <small>Run one or more Klein nodes</small>
                 </div>
               </div>
               <div id="loading" class="loading" hidden>
@@ -249,14 +139,71 @@
               <span class="time" id="active-time">Ready</span>
             </div>
             <div class="timing-row">
-              <span>Source <strong id="source-time">—</strong></span>
-              <span>KV edit <strong id="edited-time">—</strong></span>
+              <span>Mode <strong id="active-mode">Generate</strong></span>
+              <span>Stage <strong id="active-stage">Klein 1</strong></span>
             </div>
           </div>
           <span class="resize-handle" aria-label="Resize output node"></span>
         </section>
       </div>
     </main>
+
+    <template id="klein-node-template">
+      <section class="node klein-node" data-min-w="350" data-min-h="420">
+        <span class="port port-in"></span>
+        <span class="port-label in">Image</span>
+        <span class="port port-out"></span>
+        <span class="port-label out">Output</span>
+        <div class="node-head">
+          <span class="node-icon" aria-hidden="true">◈</span>
+          <span class="node-title">FLUX.2 Klein 9B-KV</span>
+          <span class="node-type runtime-state mode-badge">Generate</span>
+          <button class="remove-node" type="button" title="Remove node" aria-label="Remove Klein node">×</button>
+        </div>
+        <div class="node-body flux-body">
+          <label class="connection-field">
+            <span>Image input</span>
+            <select class="image-source" aria-label="Image input connection"></select>
+            <small class="mode-hint">No image connected · Generate mode</small>
+          </label>
+          <div class="field-label">
+            <span class="prompt-label">Describe the image</span>
+            <span class="prompt-counter">0 / 4000</span>
+          </div>
+          <div class="prompt-wrap">
+            <textarea class="stage-prompt" maxlength="4000" required></textarea>
+            <span class="counter prompt-counter-overlay">0 / 4000</span>
+          </div>
+          <div class="params">
+            <label class="param">
+              <span>Size</span>
+              <select class="stage-size">
+                <option value="512">512 px</option>
+                <option value="768">768 px</option>
+                <option value="1024" selected>1024 px</option>
+              </select>
+            </label>
+            <label class="param">
+              <span>Seed</span>
+              <input class="stage-seed" type="number" min="0" max="2147483646" required />
+            </label>
+            <div class="param locked-param">
+              <span>Steps</span>
+              <strong>4</strong>
+            </div>
+          </div>
+          <div class="actions">
+            <button class="generate run-workflow" type="submit">
+              <span class="spinner" aria-hidden="true"></span>
+              <span class="run-workflow-text">✦ Generate</span>
+            </button>
+            <button class="stop-button cancel-workflow" type="button" hidden>Stop</button>
+          </div>
+          <p class="node-status" role="status">Ready to generate</p>
+        </div>
+        <span class="resize-handle" aria-label="Resize Klein node"></span>
+      </section>
+    </template>
 
     <dialog id="image-modal">
       <div class="modal-bar">
@@ -267,6 +214,6 @@
     </dialog>
     <div class="toast" id="toast" role="status">Done</div>
 
-    <script type="module" src="/app.js?v=20260802.3"></script>
+    <script type="module" src="/app.js?v=20260802.6"></script>
   </body>
 </html>

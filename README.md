@@ -28,8 +28,9 @@ not depend on ComfyUI, a notebook UI, a tunnel, or a Python inference runtime.
   encoder, and FLUX.2 VAE downloads.
 - Lossless low-latency PNG output and telemetry for load, generation, encoding,
   residency, and streaming state.
-- Dependency-free Node 20+ UI with a serialized GPU queue, cancellation,
-  readiness checks, native logs, telemetry timings, and source/edit previews.
+- Dependency-free Node 20+ UI with automatic Generate/Edit node inference,
+  multi-stage outputs, a serialized GPU queue, cancellation, readiness checks,
+  native logs, and telemetry timings.
 - Offline CPU build mode for repository/CLI tests without model weights.
 
 This is the integration baseline, not yet a clean-room implementation of every
@@ -272,7 +273,10 @@ CPDIF_WORKDIR=/content/cpdif-work CPDIF_UI_HOST=0.0.0.0 npm start
 
 Open port `4173`. The server detects the standard `build-a100` and `build-sm120`
 layouts, queues one GPU job at a time, and always launches the exact four-step
-Klein 9B-KV path. No `npm install` is required. See
+Klein 9B-KV path. Add up to eight Klein nodes: no incoming image connection
+means Generate, while a connection to an earlier Klein output means Edit. The
+server fuses a compatible Generate → Edit pair into one native context. No
+`npm install` is required. See
 [`ui/README.md`](ui/README.md) for path overrides and validation.
 
 ## Offline validation build

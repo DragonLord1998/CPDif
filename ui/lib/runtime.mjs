@@ -7,7 +7,9 @@ import { spawn, spawnSync } from "node:child_process";
 const IMAGE_SIZES = new Set([512, 768, 1024]);
 const MAX_PROMPT_LENGTH = 4_000;
 const MAX_LOG_LENGTH = 1_000_000;
+const MAX_STAGES = 8;
 const DEFAULT_KILL_GRACE_MS = 5_000;
+const STAGE_ID = /^[a-z][a-z0-9-]{0,31}$/;
 
 function firstExisting(paths) {
   return paths.find((candidate) => existsSync(candidate)) ?? paths[0];
@@ -135,6 +137,86 @@ export function normalizeJobInput(payload) {
   });
 }
 
+function normalizeStage(stage, index, payload, knownIds) {
+  if (stage === null || typeof stage !== "object" || Array.isArray(stage)) {
+    throw new TypeError(`stage ${index + 1} must be a JSON object`);
+  }
+  const id = typeof stage.id === "string" ? stage.id.trim() : "";
+  if (!STAGE_ID.test(id) || knownIds.has(id)) {
+    throw new TypeError(
+      `stage ${index + 1} id must be unique and use lowercase letters, numbers, or dashes`,
+    );
+  }
+  const inputStageId = stage.inputStageId == null ? null : String(stage.inputStageId);
+  if (inputStageId !== null && !knownIds.has(inputStageId)) {
+    throw new TypeError(`stage ${id} image input must reference an earlier stage`);
+  }
+  const width = Number(stage.width ?? payload.width ?? 1024);
+  const height = Number(stage.height ?? payload.height ?? 1024);
+  const seed = Number(stage.seed ?? Number(payload.seed ?? 42) + index);
+  if (!IMAGE_SIZES.has(width) || !IMAGE_SIZES.has(height)) {
+    throw new TypeError(`stage ${id} width and height must be 512, 768, or 1024`);
+  }
+  if (!Number.isSafeInteger(seed) || seed < 0 || seed >= 2_147_483_647) {
+    throw new TypeError(`stage ${id} seed must be an integer between 0 and 2147483646`);
+  }
+  knownIds.add(id);
+  return Object.freeze({
+    id,
+    inputStageId,
+    mode: inputStageId === null ? "generate" : "edit",
+    prompt: readPrompt(stage, "prompt", `stage ${id} prompt`),
+    width,
+    height,
+    seed,
+  });
+}
+
+export function normalizeWorkflowInput(payload) {
+  if (payload === null || typeof payload !== "object" || Array.isArray(payload)) {
+    throw new TypeError("request body must be a JSON object");
+  }
+  if (payload.stages === undefined) {
+    const legacy = normalizeJobInput(payload);
+    return Object.freeze({
+      stages: Object.freeze([
+        Object.freeze({
+          id: "source",
+          inputStageId: null,
+          mode: "generate",
+          prompt: legacy.prompt,
+          width: legacy.width,
+          height: legacy.height,
+          seed: legacy.seed,
+        }),
+        Object.freeze({
+          id: "edited",
+          inputStageId: "source",
+          mode: "edit",
+          prompt: legacy.editPrompt,
+          width: legacy.width,
+          height: legacy.height,
+          seed: legacy.seed + 1,
+        }),
+      ]),
+    });
+  }
+  if (!Array.isArray(payload.stages) || payload.stages.length < 1) {
+    throw new TypeError("workflow must contain at least one Klein stage");
+  }
+  if (payload.stages.length > MAX_STAGES) {
+    throw new TypeError(`workflow must contain at most ${MAX_STAGES} Klein stages`);
+  }
+  const knownIds = new Set();
+  return Object.freeze({
+    stages: Object.freeze(
+      payload.stages.map((stage, index) =>
+        normalizeStage(stage, index, payload, knownIds),
+      ),
+    ),
+  });
+}
+
 export function jobPaths(outputDir, jobId) {
   const directory = path.join(outputDir, jobId);
   return Object.freeze({
@@ -145,6 +227,121 @@ export function jobPaths(outputDir, jobId) {
     editedTelemetry: path.join(directory, "edited.json"),
     log: path.join(directory, "cpdif.log"),
   });
+}
+
+export function workflowPaths(outputDir, jobId, input) {
+  const directory = path.join(outputDir, jobId);
+  const stages = input.stages.map((stage) =>
+    Object.freeze({
+      id: stage.id,
+      image: path.join(directory, `${stage.id}.png`),
+      telemetry: path.join(directory, `${stage.id}.json`),
+    }),
+  );
+  return Object.freeze({
+    directory,
+    stages: Object.freeze(stages),
+    stageById: new Map(stages.map((stage) => [stage.id, stage])),
+    log: path.join(directory, "cpdif.log"),
+  });
+}
+
+function commonCpdifArgs(config, stage, { kleinKvCache }) {
+  const args = [
+    "--transformer",
+    config.transformer,
+    "--text-encoder",
+    config.textEncoder,
+    "--vae",
+    config.vae,
+  ];
+  if (kleinKvCache) {
+    args.push("--klein-kv-cache");
+  }
+  args.push(
+    "--steps",
+    "4",
+    "--width",
+    String(stage.width),
+    "--height",
+    String(stage.height),
+    "--cfg-scale",
+    "1.0",
+    "--rng",
+    "cpu",
+    "--qwen-image-layers",
+    "3",
+    "--no-offload-to-cpu",
+  );
+  if (config.maxVram) {
+    args.push("--max-vram", config.maxVram);
+  }
+  return args;
+}
+
+function canFuseStages(source, edited) {
+  return (
+    source.inputStageId === null &&
+    edited?.inputStageId === source.id &&
+    source.width === edited.width &&
+    source.height === edited.height
+  );
+}
+
+export function buildWorkflowCommands(config, input, paths) {
+  const commands = [];
+  for (let index = 0; index < input.stages.length; index += 1) {
+    const stage = input.stages[index];
+    const stagePaths = paths.stageById.get(stage.id);
+    const next = input.stages[index + 1];
+    if (next && canFuseStages(stage, next)) {
+      const nextPaths = paths.stageById.get(next.id);
+      const args = [
+        "generate-edit",
+        ...commonCpdifArgs(config, stage, { kleinKvCache: true }),
+        "--prompt",
+        stage.prompt,
+        "--edit-prompt",
+        next.prompt,
+        "--seed",
+        String(stage.seed),
+        "--edit-seed",
+        String(next.seed),
+        "--output",
+        stagePaths.image,
+        "--telemetry",
+        stagePaths.telemetry,
+        "--edited-output",
+        nextPaths.image,
+        "--edited-telemetry",
+        nextPaths.telemetry,
+      ];
+      commands.push(Object.freeze({ stageIds: [stage.id, next.id], args }));
+      index += 1;
+      continue;
+    }
+    const edit = stage.inputStageId !== null;
+    const args = [
+      edit ? "edit" : "generate",
+      ...commonCpdifArgs(config, stage, { kleinKvCache: edit }),
+      "--prompt",
+      stage.prompt,
+      "--seed",
+      String(stage.seed),
+      "--output",
+      stagePaths.image,
+      "--telemetry",
+      stagePaths.telemetry,
+    ];
+    if (edit) {
+      args.push(
+        "--reference-image",
+        paths.stageById.get(stage.inputStageId).image,
+      );
+    }
+    commands.push(Object.freeze({ stageIds: [stage.id], args }));
+  }
+  return Object.freeze(commands);
 }
 
 export function buildCpdifArgs(config, input, paths) {
@@ -210,12 +407,15 @@ function publicJob(job) {
     error: job.error,
     log: job.log,
     telemetry: job.telemetry,
+    activeStages: job.activeStages,
     images:
       job.status === "completed"
-        ? {
-            source: `/api/jobs/${job.id}/images/source`,
-            edited: `/api/jobs/${job.id}/images/edited`,
-          }
+        ? Object.fromEntries(
+            job.input.stages.map((stage) => [
+              stage.id,
+              `/api/jobs/${job.id}/images/${stage.id}`,
+            ]),
+          )
         : null,
   };
 }
@@ -241,12 +441,12 @@ export class JobManager {
   }
 
   create(payload) {
-    const input = normalizeJobInput(payload);
+    const input = normalizeWorkflowInput(payload);
     const id = this.idFactory();
     const job = {
       id,
       input,
-      paths: jobPaths(this.config.outputDir, id),
+      paths: workflowPaths(this.config.outputDir, id, input),
       status: "queued",
       createdAt: this.now().toISOString(),
       startedAt: null,
@@ -254,6 +454,7 @@ export class JobManager {
       error: null,
       log: "",
       telemetry: null,
+      activeStages: [],
       child: null,
       killTimer: null,
       cancelRequested: false,
@@ -273,12 +474,12 @@ export class JobManager {
     return [...this.jobs.values()].slice(-20).reverse().map(publicJob);
   }
 
-  imagePath(id, kind) {
+  imagePath(id, stageId) {
     const job = this.jobs.get(id);
     if (!job || job.status !== "completed") {
       return null;
     }
-    return kind === "source" ? job.paths.sourceImage : job.paths.editedImage;
+    return job.paths.stageById.get(stageId)?.image ?? null;
   }
 
   cancel(id) {
@@ -342,7 +543,39 @@ export class JobManager {
     await mkdir(job.paths.directory, { recursive: true });
     job.status = "running";
     job.startedAt = this.now().toISOString();
-    const args = buildCpdifArgs(this.config, job.input, job.paths);
+    try {
+      for (const command of buildWorkflowCommands(this.config, job.input, job.paths)) {
+        if (!(await this.#runCommand(job, command))) {
+          return;
+        }
+      }
+      const telemetry = Object.fromEntries(
+        await Promise.all(
+          job.input.stages.map(async (stage) => [
+            stage.id,
+            await readJson(job.paths.stageById.get(stage.id).telemetry),
+          ]),
+        ),
+      );
+      for (const stage of job.input.stages) {
+        if (stage.mode === "edit" && telemetry[stage.id].klein_kv_cache !== true) {
+          throw new Error(
+            `telemetry did not confirm the Klein KV-cache path for ${stage.id}`,
+          );
+        }
+      }
+      job.telemetry = telemetry;
+      job.activeStages = [];
+      job.status = "completed";
+      job.completedAt = this.now().toISOString();
+    } finally {
+      await writeFile(job.paths.log, job.log, "utf8").catch(() => {});
+    }
+  }
+
+  async #runCommand(job, command) {
+    job.activeStages = command.stageIds;
+    const args = command.args;
     const child = this.spawnProcess(this.config.binary, args, {
       cwd: job.paths.directory,
       env: process.env,
@@ -369,26 +602,17 @@ export class JobManager {
       }
       job.child = null;
     }
-    await writeFile(job.paths.log, job.log, "utf8");
     if (job.cancelRequested) {
+      job.activeStages = [];
       job.status = "cancelled";
       job.completedAt = this.now().toISOString();
-      return;
+      return false;
     }
     if (result.code !== 0) {
       throw new Error(
         `cpdif exited with ${result.code ?? `signal ${result.signal ?? "unknown"}`}`,
       );
     }
-    const [source, edited] = await Promise.all([
-      readJson(job.paths.sourceTelemetry),
-      readJson(job.paths.editedTelemetry),
-    ]);
-    if (source.klein_kv_cache !== true || edited.klein_kv_cache !== true) {
-      throw new Error("telemetry did not confirm the Klein KV-cache path");
-    }
-    job.telemetry = { source, edited };
-    job.status = "completed";
-    job.completedAt = this.now().toISOString();
+    return true;
   }
 }

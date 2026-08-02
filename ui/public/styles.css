@@ -444,21 +444,6 @@ summary:focus-visible {
   right: 10px;
 }
 
-#source-node {
-  top: 135px;
-  left: 60px;
-  width: 310px;
-  height: 380px;
-}
-
-#flux-node {
-  top: 72px;
-  left: 440px;
-  width: 410px;
-  height: 440px;
-  border-color: #b6a1ee;
-}
-
 #output-node {
   top: 62px;
   left: 930px;
@@ -1269,18 +1254,165 @@ dialog::backdrop {
     display: none;
   }
 
-  #source-node {
-    top: 100px;
-    left: 35px;
-  }
-
-  #flux-node {
-    top: 72px;
-    left: 390px;
-  }
-
   #output-node {
     top: 62px;
     left: 850px;
   }
+}
+
+.add-node-button {
+  height: 32px;
+  margin-left: 8px;
+  padding: 0 11px;
+  border: 1px solid #d6c9f3;
+  border-radius: 9px;
+  background: #fff;
+  color: var(--purple-strong);
+  font-size: 10px;
+  font-weight: 780;
+  pointer-events: auto;
+}
+
+.add-node-button:hover:not(:disabled) {
+  background: var(--purple-soft);
+}
+
+.add-node-button:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+
+.klein-node {
+  width: 410px;
+  height: 440px;
+  border-color: #b6a1ee;
+}
+
+.klein-node:not(.edit-mode) .port-in {
+  border-color: #cfc8d7;
+  background: #f8f6fa;
+}
+
+.klein-node:not(.edit-mode) .port-label.in {
+  color: #b1aab7;
+}
+
+.mode-badge {
+  color: var(--purple);
+}
+
+.mode-badge::before {
+  background: currentColor;
+}
+
+.mode-badge.edit {
+  color: var(--green);
+}
+
+.remove-node {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: #a39ba9;
+  font-size: 16px;
+  line-height: 1;
+}
+
+.remove-node:hover {
+  border-color: #ead4dc;
+  background: #fff7f9;
+  color: var(--danger);
+}
+
+.connection-field {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 4px;
+  margin-bottom: 11px;
+  padding: 9px;
+  border: 1px solid #e7e0ef;
+  border-radius: 11px;
+  background: linear-gradient(145deg, #fdfcff, #f6f1ff);
+}
+
+.connection-field > span {
+  color: #776f7f;
+  font-size: 9px;
+  font-weight: 780;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.connection-field select {
+  width: 100%;
+  height: 31px;
+  padding: 0 8px;
+  border: 1px solid #dcd4e6;
+  border-radius: 8px;
+  outline: none;
+  background: #fff;
+  color: #4c4653;
+  font-size: 9px;
+  font-weight: 680;
+}
+
+.connection-field select:focus {
+  border-color: var(--purple);
+  box-shadow: 0 0 0 3px var(--purple-soft);
+}
+
+.connection-field small {
+  color: #958d9b;
+  font-size: 8px;
+}
+
+.edit-mode .connection-field {
+  border-color: #cce8d7;
+  background: linear-gradient(145deg, #fbfffc, #f0faf4);
+}
+
+.klein-node textarea {
+  min-height: 116px;
+}
+
+.node-status {
+  min-height: 14px;
+  margin: 7px 1px 0;
+  color: #948d9b;
+  font-size: 8px;
+}
+
+.node-status.active {
+  color: var(--purple);
+  font-weight: 760;
+}
+
+#workflow-panel {
+  z-index: 5;
+  width: 470px;
+  transform: none;
+}
+
+#workflow-panel::before {
+  display: none;
+}
+
+#workflow-panel .form-error {
+  margin: 2px 11px 7px;
+}
+
+#stage-tabs {
+  display: flex;
+  grid-template-columns: none;
+  overflow-x: auto;
+}
+
+#stage-tabs button {
+  flex: 1 0 auto;
+  min-width: 92px;
+  padding: 0 9px;
 }
