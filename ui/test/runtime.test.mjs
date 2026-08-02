@@ -11,6 +11,7 @@ import {
   buildCpdifArgs,
   jobPaths,
   normalizeJobInput,
+  resolveRuntimeConfig,
 } from "../lib/runtime.mjs";
 
 async function waitFor(predicate, timeoutMs = 1_000) {
@@ -77,6 +78,20 @@ test("builds the exact Klein KV command without a shell", () => {
   assert.equal(args[args.indexOf("--edit-seed") + 1], "43");
   assert.equal(args[args.indexOf("--edited-output") + 1], "/outputs/job-1/edited.png");
   assert.equal(args.includes("--cache"), false);
+});
+
+test("resolves the LoRA asset directory and bounded download limit", () => {
+  const config = resolveRuntimeConfig({
+    uiRoot: "/repo/ui",
+    env: {
+      CPDIF_WORKDIR: "/runtime/work",
+      CPDIF_UI_MAX_VRAM: "",
+      CPDIF_LORA_DIR: "/runtime/loras",
+      CPDIF_UI_MAX_LORA_BYTES: "2048",
+    },
+  });
+  assert.equal(config.loraDir, "/runtime/loras");
+  assert.equal(config.maxLoraBytes, 2048);
 });
 
 test("forces a stuck cancelled process down and advances the GPU queue", async () => {

@@ -673,12 +673,206 @@ textarea:focus {
   position: absolute;
   top: calc(100% + 15px);
   left: 50%;
-  width: min(370px, calc(100% - 24px));
+  width: min(470px, calc(100% + 60px));
   transform: translateX(-50%);
   border: 1px solid #d2c3f4;
   border-radius: 14px;
   background: #fff;
   box-shadow: 0 14px 32px rgba(78, 56, 131, 0.13);
+}
+
+.lora-head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 48px;
+  padding: 9px 11px;
+}
+
+.lora-icon {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  border-radius: 9px;
+  background: var(--purple-soft);
+  color: var(--purple);
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.lora-head > div {
+  min-width: 0;
+}
+
+.lora-head strong,
+.lora-head small {
+  display: block;
+}
+
+.lora-head strong {
+  font-size: 10px;
+}
+
+.lora-head small {
+  margin-top: 2px;
+  color: #958d9b;
+  font-size: 8px;
+}
+
+.lora-head .execution-count {
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
+.lora-download-row {
+  display: grid;
+  grid-template-columns: 0.8fr 1.45fr auto;
+  gap: 6px;
+  padding: 0 11px;
+}
+
+.lora-download-row label {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  color: #918a98;
+  font-size: 8px;
+  font-weight: 760;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.lora-download-row input {
+  width: 100%;
+  min-width: 0;
+  height: 34px;
+  padding: 0 9px;
+  border: 1px solid #ddd7e5;
+  border-radius: 9px;
+  outline: none;
+  background: #fefeff;
+  color: var(--ink);
+  font-size: 9px;
+  text-transform: none;
+}
+
+.lora-download-row input:focus {
+  border-color: var(--purple);
+  box-shadow: 0 0 0 3px var(--purple-soft);
+}
+
+.lora-download-row button {
+  align-self: end;
+  height: 34px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 9px;
+  background: var(--purple);
+  color: #fff;
+  font-size: 9px;
+  font-weight: 780;
+}
+
+.lora-download-row button:disabled {
+  cursor: wait;
+  opacity: 0.72;
+}
+
+.lora-button-spinner {
+  display: none;
+  width: 11px;
+  height: 11px;
+  margin-right: 4px;
+  border: 2px solid rgba(255, 255, 255, 0.42);
+  border-top-color: #fff;
+  border-radius: 50%;
+  vertical-align: -2px;
+  animation: spin 700ms linear infinite;
+}
+
+.downloading .lora-button-spinner {
+  display: inline-block;
+}
+
+.lora-status {
+  min-height: 12px;
+  margin: 7px 11px 4px;
+  color: #918a98;
+  font-size: 8px;
+  line-height: 1.4;
+}
+
+.lora-status.error {
+  color: var(--danger);
+}
+
+.lora-status.success {
+  color: var(--green);
+}
+
+.lora-list {
+  display: grid;
+  gap: 4px;
+  max-height: 82px;
+  overflow: auto;
+  margin: 0;
+  padding: 0 11px 9px;
+  list-style: none;
+}
+
+.lora-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+  padding: 5px 7px;
+  border: 1px solid #ede8f2;
+  border-radius: 8px;
+  background: #fcfbfd;
+}
+
+.lora-list li > span {
+  display: grid;
+  min-width: 0;
+}
+
+.lora-list strong,
+.lora-list small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lora-list strong {
+  color: #5f5767;
+  font-size: 8px;
+}
+
+.lora-list small {
+  margin-top: 1px;
+  color: #9a939f;
+  font-size: 7px;
+}
+
+.lora-list em {
+  flex: 0 0 auto;
+  margin-left: auto;
+  color: #8c8492;
+  font-size: 7px;
+  font-style: normal;
+}
+
+.lora-list .lora-empty {
+  justify-content: center;
+  border-style: dashed;
+  color: #a098a6;
+  font-size: 8px;
+}
+
+.native-divider {
+  border-top: 1px solid #e9e2f1;
 }
 
 .execution-card::before {

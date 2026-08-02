@@ -8,7 +8,7 @@
       content="A visual node canvas for CPDif FLUX.2 Klein 9B-KV image generation and editing."
     />
     <title>Klein Studio · CPDif</title>
-    <link rel="stylesheet" href="/styles.css?v=20260802.2" />
+    <link rel="stylesheet" href="/styles.css?v=20260802.3" />
   </head>
   <body>
     <header class="app-header">
@@ -139,6 +139,46 @@
             </div>
 
             <section class="execution-card">
+              <div class="lora-head">
+                <span class="lora-icon" aria-hidden="true">↓</span>
+                <div>
+                  <strong>LoRA downloads</strong>
+                  <small>Stored only · native inference support is not wired yet</small>
+                </div>
+                <span id="lora-count" class="execution-count">0 assets</span>
+              </div>
+              <div class="lora-download-row">
+                <label for="lora-name">
+                  <span>Name</span>
+                  <input
+                    id="lora-name"
+                    type="text"
+                    maxlength="80"
+                    autocomplete="off"
+                    placeholder="My style"
+                  />
+                </label>
+                <label for="lora-url">
+                  <span>HTTPS URL</span>
+                  <input
+                    id="lora-url"
+                    type="url"
+                    autocomplete="off"
+                    spellcheck="false"
+                    placeholder="https://…/model.safetensors"
+                  />
+                </label>
+                <button id="download-lora" type="button">
+                  <span class="lora-button-spinner" aria-hidden="true"></span>
+                  <span id="download-lora-text">Download</span>
+                </button>
+              </div>
+              <p id="lora-status" class="lora-status" role="status">
+                Add a safetensors URL and a local name.
+              </p>
+              <ul id="lora-list" class="lora-list" aria-label="Downloaded LoRAs"></ul>
+
+              <div class="native-divider"></div>
               <div class="execution-head">
                 <strong>Native execution</strong>
                 <span class="execution-count">Exact path</span>
@@ -227,6 +267,6 @@
     </dialog>
     <div class="toast" id="toast" role="status">Done</div>
 
-    <script type="module" src="/app.js?v=20260802.2"></script>
+    <script type="module" src="/app.js?v=20260802.3"></script>
   </body>
 </html>

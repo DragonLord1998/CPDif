@@ -16,6 +16,13 @@ FLUX.2 Klein 9B-KV, and Native Output. Nodes can be dragged and resized, the
 canvas can be zoomed or reset, and the output node switches between the source
 and edited PNG while retaining native telemetry, logs, and cancellation.
 
+The FLUX node also includes a LoRA asset downloader with adjacent Name and HTTPS
+URL fields. Downloads are streamed into `CPDIF_LORA_DIR` (default:
+`$CPDIF_WORKDIR/loras`), validated as safetensors, limited to 4 GiB by default,
+and listed in the UI. Private-network destinations and unsafe redirects are
+rejected. The current native `cpdif` CLI does not expose LoRA application, so
+the UI labels these files as stored assets and does not add them to inference.
+
 The design system is dependency-free and lives in `public/styles.css`: color,
 spacing, typography, radius, shadow, focus, motion, and responsive tokens are
 plain CSS custom properties and component rules.
@@ -47,6 +54,8 @@ CPDIF_TRANSFORMER=/path/to/flux-2-klein-9b-kv-Q8_0.gguf \
 CPDIF_TEXT_ENCODER=/path/to/qwen_3_8b.safetensors \
 CPDIF_VAE=/path/to/flux2-vae.safetensors \
 CPDIF_UI_DATA_DIR=/path/to/job-output \
+CPDIF_LORA_DIR=/path/to/loras \
+CPDIF_UI_MAX_LORA_BYTES=4294967296 \
 CPDIF_UI_PORT=4173 \
 npm start
 ```

@@ -43,6 +43,10 @@ export function resolveRuntimeConfig({ env = process.env, uiRoot } = {}) {
     : detectA100()
       ? "8"
       : "";
+  const maxLoraBytes = Number.parseInt(
+    env.CPDIF_UI_MAX_LORA_BYTES ?? String(4 * 1024 * 1024 * 1024),
+    10,
+  );
 
   return Object.freeze({
     host: env.CPDIF_UI_HOST ?? "127.0.0.1",
@@ -60,6 +64,12 @@ export function resolveRuntimeConfig({ env = process.env, uiRoot } = {}) {
     outputDir: path.resolve(
       env.CPDIF_UI_DATA_DIR ?? path.join(uiRoot, "data", "jobs"),
     ),
+    loraDir: path.resolve(env.CPDIF_LORA_DIR ?? path.join(workDir, "loras")),
+    maxLoraBytes:
+      Number.isSafeInteger(maxLoraBytes) && maxLoraBytes > 0
+        ? maxLoraBytes
+        : 4 * 1024 * 1024 * 1024,
+    loraDownloadTimeoutMs: 30 * 60 * 1000,
     maxVram,
   });
 }

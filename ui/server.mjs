@@ -9,6 +9,7 @@ import {
   resolveRuntimeConfig,
   runtimeReadiness,
 } from "./lib/runtime.mjs";
+import { LoraStore } from "./lib/lora-store.mjs";
 
 const UI_ROOT = path.dirname(fileURLToPath(import.meta.url));
 const MAX_BODY_BYTES = 64 * 1024;
@@ -75,10 +76,20 @@ export function createHttpServer({
   config,
   manager,
   readiness = runtimeReadiness,
+  loraStore,
   publicDir = path.join(UI_ROOT, "public"),
 } = {}) {
   const runtimeConfig = config ?? resolveRuntimeConfig({ uiRoot: UI_ROOT });
   const jobs = manager ?? new JobManager(runtimeConfig);
+  const loras =
+    loraStore ??
+    new LoraStore({
+      loraDir:
+        runtimeConfig.loraDir ??
+        path.join(runtimeConfig.workDir ?? path.join(UI_ROOT, "data"), "loras"),
+      maxLoraBytes: runtimeConfig.maxLoraBytes,
+      loraDownloadTimeoutMs: runtimeConfig.loraDownloadTimeoutMs,
+    });
 
   const server = http.createServer(async (request, response) => {
     try {
@@ -91,6 +102,20 @@ export function createHttpServer({
       }
       if (request.method === "GET" && pathname === "/api/jobs") {
         sendJson(response, 200, { jobs: jobs.list() });
+        return;
+      }
+      if (request.method === "GET" && pathname === "/api/loras") {
+        sendJson(response, 200, {
+          loras: await loras.list(),
+          inferenceSupported: false,
+        });
+        return;
+      }
+      if (request.method === "POST" && pathname === "/api/loras") {
+        sendJson(response, 201, {
+          lora: await loras.download(await readJsonBody(request)),
+          inferenceSupported: false,
+        });
         return;
       }
       if (request.method === "POST" && pathname === "/api/jobs") {
@@ -160,13 +185,20 @@ export function createHttpServer({
       }
       sendError(response, 404, "not found");
     } catch (error) {
-      const status = error instanceof TypeError ? 400 : 500;
+      const status =
+        Number.isInteger(error.statusCode) &&
+        error.statusCode >= 400 &&
+        error.statusCode <= 599
+          ? error.statusCode
+          : error instanceof TypeError
+            ? 400
+            : 500;
       sendError(response, status, error.message ?? "internal server error");
     }
   });
 
   server.on("close", () => jobs.shutdown?.());
-  return { server, config: runtimeConfig, manager: jobs };
+  return { server, config: runtimeConfig, manager: jobs, loraStore: loras };
 }
 
 export async function startServer(options = {}) {

@@ -22,6 +22,10 @@ test("uses the visual node canvas while preserving the native job contract", asy
     "source-image",
     "edited-image",
     "job-log",
+    "lora-name",
+    "lora-url",
+    "download-lora",
+    "lora-list",
   ]) {
     assert.match(html, new RegExp(`id="${id}"`));
   }
@@ -35,6 +39,8 @@ test("uses the visual node canvas while preserving the native job contract", asy
   assert.match(script, /method:\s*"POST"/);
   assert.match(script, /editPrompt:\s*data\.get\("editPrompt"\)/);
   assert.match(script, /\/api\/jobs\/\$\{activeJobId\}\/cancel/);
-  assert.doesNotMatch(html.toLowerCase(), /lora/);
+  assert.match(html, /Stored only · native inference support is not wired yet/);
+  assert.match(script, /api\("\/api\/loras"/);
+  assert.match(script, /JSON\.stringify\(\{ name, url \}\)/);
   assert.doesNotMatch(html, /type="file"/);
 });

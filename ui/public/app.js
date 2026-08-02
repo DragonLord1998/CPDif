@@ -14,6 +14,13 @@ const elements = {
   fluxState: $("#flux-state"),
   jobStatus: $("#job-status"),
   jobLog: $("#job-log"),
+  loraName: $("#lora-name"),
+  loraUrl: $("#lora-url"),
+  loraDownload: $("#download-lora"),
+  loraDownloadText: $("#download-lora-text"),
+  loraStatus: $("#lora-status"),
+  loraList: $("#lora-list"),
+  loraCount: $("#lora-count"),
   prompt: $("#prompt"),
   editPrompt: $("#edit-prompt"),
   promptCounter: $("#prompt-counter"),
@@ -48,6 +55,20 @@ let zoom = 1;
 
 function formatMs(value) {
   return Number.isFinite(value) ? `${(value / 1000).toFixed(2)} s` : "—";
+}
+
+function formatBytes(value) {
+  if (!Number.isFinite(value) || value < 0) {
+    return "Unknown size";
+  }
+  const units = ["B", "KB", "MB", "GB"];
+  let size = value;
+  let index = 0;
+  while (size >= 1024 && index < units.length - 1) {
+    size /= 1024;
+    index += 1;
+  }
+  return `${size.toFixed(index === 0 ? 0 : 1)} ${units[index]}`;
 }
 
 function toast(message) {
@@ -326,6 +347,76 @@ async function checkRuntime() {
   }
 }
 
+function renderLoras(loras) {
+  elements.loraList.replaceChildren();
+  elements.loraCount.textContent = `${loras.length} ${loras.length === 1 ? "asset" : "assets"}`;
+  if (loras.length === 0) {
+    const empty = document.createElement("li");
+    empty.className = "lora-empty";
+    empty.textContent = "No downloaded LoRAs yet.";
+    elements.loraList.append(empty);
+    return;
+  }
+  for (const lora of loras) {
+    const item = document.createElement("li");
+    const identity = document.createElement("span");
+    const name = document.createElement("strong");
+    const filename = document.createElement("small");
+    const size = document.createElement("em");
+    name.textContent = lora.name;
+    filename.textContent = lora.filename;
+    size.textContent = formatBytes(lora.sizeBytes);
+    identity.append(name, filename);
+    item.append(identity, size);
+    elements.loraList.append(item);
+  }
+}
+
+async function loadLoras() {
+  try {
+    const payload = await api("/api/loras");
+    renderLoras(payload.loras);
+  } catch (error) {
+    elements.loraStatus.textContent = error.message;
+    elements.loraStatus.classList.add("error");
+  }
+}
+
+async function downloadLora() {
+  const name = elements.loraName.value.trim();
+  const url = elements.loraUrl.value.trim();
+  elements.loraStatus.classList.remove("error", "success");
+  if (!name || !url) {
+    elements.loraStatus.textContent = "Enter both a name and an HTTPS safetensors URL.";
+    elements.loraStatus.classList.add("error");
+    return;
+  }
+  elements.loraDownload.disabled = true;
+  elements.loraDownload.classList.add("downloading");
+  elements.loraDownloadText.textContent = "Downloading…";
+  elements.loraStatus.textContent = "Downloading to the CPDif LoRA directory…";
+  try {
+    const payload = await api("/api/loras", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, url }),
+    });
+    elements.loraName.value = "";
+    elements.loraUrl.value = "";
+    elements.loraStatus.textContent = `${payload.lora.filename} downloaded. It is stored, not applied to inference.`;
+    elements.loraStatus.classList.add("success");
+    toast("LoRA downloaded");
+    await loadLoras();
+  } catch (error) {
+    elements.loraStatus.textContent = error.message;
+    elements.loraStatus.classList.add("error");
+  } finally {
+    elements.loraDownload.disabled = false;
+    elements.loraDownload.classList.remove("downloading");
+    elements.loraDownloadText.textContent = "Download";
+  }
+}
+
 elements.form.addEventListener("submit", async (event) => {
   event.preventDefault();
   window.clearTimeout(pollTimer);
@@ -375,6 +466,16 @@ elements.cancel.addEventListener("click", async () => {
     elements.cancel.disabled = false;
   }
 });
+
+elements.loraDownload.addEventListener("click", downloadLora);
+for (const input of [elements.loraName, elements.loraUrl]) {
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      void downloadLora();
+    }
+  });
+}
 
 for (const input of [elements.prompt, elements.editPrompt]) {
   input.addEventListener("input", () =>
@@ -463,3 +564,4 @@ updateCounter(elements.editPrompt, elements.editCounter);
 setView("edited");
 updateWires();
 void checkRuntime();
+void loadLoras();
