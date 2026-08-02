@@ -50,6 +50,15 @@ def graph_memory_args(gpu_key: str) -> list[str]:
     return []
 
 
+def output_hashes_are_diverse(hashes: list[dict[str, str]]) -> bool:
+    """Reject flat/corrupt repeat outputs that pass PNG header validation."""
+    return (
+        len(hashes) >= 2
+        and len({sample["cat"] for sample in hashes}) > 1
+        and len({sample["edit"] for sample in hashes}) > 1
+    )
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--gpu-key", choices=("a100_40gb", "rtx_pro_6000"), required=True)
@@ -168,6 +177,7 @@ def run_profile(
         "peak_vram_mib": int(runtime["peak_vram_mib"]),
         "images_valid": images_valid,
         "telemetry_valid": telemetry_valid,
+        "output_diversity_valid": output_hashes_are_diverse(hashes),
         "hashes": hashes,
         "gpu": runtime["gpu"],
     }
@@ -246,8 +256,10 @@ def main() -> int:
         and standard_exact
         and standard["images_valid"]
         and standard["telemetry_valid"]
+        and standard["output_diversity_valid"]
         and kv["images_valid"]
         and kv["telemetry_valid"]
+        and kv["output_diversity_valid"]
         and kv["steady_state_edit_ms_median"] < standard["steady_state_edit_ms_median"]
     )
     output = {

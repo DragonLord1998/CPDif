@@ -251,7 +251,7 @@ diff --git a/src/model/diffusion/flux.hpp b/src/model/diffusion/flux.hpp
 index 375576c..348d578 100644
 --- a/src/model/diffusion/flux.hpp
 +++ b/src/model/diffusion/flux.hpp
-@@ -427,6 +427,224 @@ namespace Flux {
+@@ -427,6 +427,225 @@ namespace Flux {
          return x;
      }
  
@@ -396,6 +396,7 @@ index 375576c..348d578 100644
 +                                                       bool extract,
 +                                                       const std::string& cache_prefix,
 +                                                       const std::string& cache_group) {
++        (void) cache_group;
 +        q = Rope::apply_rope(ctx->ggml_ctx, q, pe, true);
 +        k = Rope::apply_rope(ctx->ggml_ctx, k, pe, true);
 +
@@ -406,8 +407,8 @@ index 375576c..348d578 100644
 +                                    token_view_3d(ctx->ggml_ctx, k, text_tokens, reference_tokens));
 +            reference_v = ggml_cont(ctx->ggml_ctx,
 +                                    token_view_4d(ctx->ggml_ctx, v, text_tokens, reference_tokens));
-+            sd::ggml_graph_cut::mark_graph_cut(reference_k, cache_group, "klein_kv_k");
-+            sd::ggml_graph_cut::mark_graph_cut(reference_v, cache_group, "klein_kv_v");
++            ggml_set_output(reference_k);
++            ggml_set_output(reference_v);
 +            ctx->persist_cache_tensor(cache_prefix + ".k", reference_k);
 +            ctx->persist_cache_tensor(cache_prefix + ".v", reference_v);
 +        } else {

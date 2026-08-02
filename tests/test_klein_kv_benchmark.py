@@ -65,6 +65,24 @@ class KleinKvBenchmarkTests(unittest.TestCase):
         )
         self.assertEqual([], KLEIN_KV.graph_memory_args("rtx_pro_6000"))
 
+    def test_output_hashes_require_distinct_cat_and_edit_repeats(self):
+        self.assertTrue(
+            KLEIN_KV.output_hashes_are_diverse(
+                [
+                    {"cat": "cat-1", "edit": "edit-1"},
+                    {"cat": "cat-2", "edit": "edit-2"},
+                ]
+            )
+        )
+        self.assertFalse(
+            KLEIN_KV.output_hashes_are_diverse(
+                [
+                    {"cat": "cat-1", "edit": "white"},
+                    {"cat": "cat-2", "edit": "white"},
+                ]
+            )
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
