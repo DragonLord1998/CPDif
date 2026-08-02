@@ -13,6 +13,7 @@
 #include <stdexcept>
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace cpdif {
 namespace {
@@ -105,6 +106,15 @@ void apply_cache_config(const CacheConfig& source, sd_cache_params_t& target) {
     target.spectrum_stop_percent = source.spectrum_stop_percent;
 }
 
+sd_image_t view_loaded_image(const LoadedImage& image) {
+    sd_image_t view{};
+    view.width = static_cast<std::uint32_t>(image.width);
+    view.height = static_cast<std::uint32_t>(image.height);
+    view.channel = static_cast<std::uint32_t>(image.channels);
+    view.data = const_cast<std::uint8_t*>(image.pixels.data());
+    return view;
+}
+
 }  // namespace
 
 class KleinEngine::Impl {
@@ -145,27 +155,29 @@ public:
     GenerationResult generate(
         const RuntimeConfig& config,
         const LoadedImage* in_memory_reference) {
-        LoadedImage reference_image;
-        sd_image_t reference_view{};
+        std::vector<LoadedImage> reference_images;
+        std::vector<sd_image_t> reference_views;
         if (config.mode == GenerationMode::image_edit) {
             if (in_memory_reference != nullptr) {
-                reference_view.width =
-                    static_cast<std::uint32_t>(in_memory_reference->width);
-                reference_view.height =
-                    static_cast<std::uint32_t>(in_memory_reference->height);
-                reference_view.channel =
-                    static_cast<std::uint32_t>(in_memory_reference->channels);
-                reference_view.data = const_cast<std::uint8_t*>(
-                    in_memory_reference->pixels.data());
-            } else {
+                reference_views.push_back(view_loaded_image(*in_memory_reference));
+            }
+            const std::size_t first_path_index =
+                in_memory_reference == nullptr ? 0 : 1;
+            if (config.reference_image_paths.size() > first_path_index) {
                 const auto reference_begin = Clock::now();
-                reference_image = load_rgb_image(config.reference_image_path);
+                reference_images.reserve(
+                    config.reference_image_paths.size() - first_path_index);
+                for (std::size_t index = first_path_index;
+                     index < config.reference_image_paths.size();
+                     ++index) {
+                    reference_images.push_back(
+                        load_rgb_image(config.reference_image_paths[index]));
+                }
                 reference_load_ms_ = elapsed_ms(reference_begin);
-                reference_view.width = static_cast<std::uint32_t>(reference_image.width);
-                reference_view.height = static_cast<std::uint32_t>(reference_image.height);
-                reference_view.channel =
-                    static_cast<std::uint32_t>(reference_image.channels);
-                reference_view.data = reference_image.pixels.data();
+                reference_views.reserve(reference_views.size() + reference_images.size());
+                for (auto& image : reference_images) {
+                    reference_views.push_back(view_loaded_image(image));
+                }
             }
         }
 
@@ -181,8 +193,8 @@ public:
                                       ? config.qwen_image_layers
                                       : 0;
         if (config.mode == GenerationMode::image_edit) {
-            params.ref_images = &reference_view;
-            params.ref_images_count = 1;
+            params.ref_images = reference_views.data();
+            params.ref_images_count = static_cast<int>(reference_views.size());
         }
         params.sample_params.sample_steps = config.steps;
         params.sample_params.guidance.txt_cfg = config.cfg_scale;

@@ -2,6 +2,7 @@ import { readFile, stat } from "node:fs/promises";
 
 const MAX_PROMPT_LENGTH = 4_000;
 const MAX_IMAGE_BYTES = 32 * 1024 * 1024;
+const MAX_REFERENCE_IMAGES = 4;
 const DEFAULT_ENDPOINT = "http://127.0.0.1:11434";
 const DEFAULT_MODEL = "lukey03/qwen3.5-9b-abliterated-vision";
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "::1", "[::1]", "localhost"]);
@@ -18,7 +19,7 @@ Rewrite the user's draft into one production-ready FLUX.2 prompt while preservin
 - Add camera, lens, lighting, composition, material, or typography detail only when it supports the user's stated intent.
 - Do not add unrelated objects, identities, brands, text, or story elements.
 - For Generate mode, describe a complete scene that can stand alone.
-- For Edit mode, state precisely what changes and what must remain unchanged. When a reference image is attached, ground the instruction in visible subjects, composition, lighting, and materials without inventing unseen details.
+- For Edit mode, state precisely what changes and what must remain unchanged. When reference images are attached, they are ordered as Image 1 through Image 4. Preserve those numbers in the rewrite and ground the instruction in visible subjects, composition, lighting, and materials without inventing unseen details.
 - Do not weaken or reinterpret safety requirements. The rewritten prompt must remain suitable for the configured image model and its license.
 
 The JSON response must contain exactly one string field named "prompt".`;
@@ -147,20 +148,24 @@ export class PromptAssistant {
     }
   }
 
-  async rewrite(input, { imagePath = null } = {}) {
+  async rewrite(input, { imagePath = null, imagePaths = null } = {}) {
     const { mode, prompt } = normalizeRewriteInput(input);
     const { enabled, endpoint, model, timeoutMs } = this.config;
     if (!enabled) {
       throw assistantError("local prompt assistant is disabled", 503);
     }
 
-    let imageBase64 = null;
-    if (imagePath) {
-      const metadata = await this.imageStat(imagePath);
+    const references = imagePaths ?? (imagePath ? [imagePath] : []);
+    if (!Array.isArray(references) || references.length > MAX_REFERENCE_IMAGES) {
+      throw new TypeError(`prompt assistance accepts at most ${MAX_REFERENCE_IMAGES} images`);
+    }
+    const encodedImages = [];
+    for (const reference of references) {
+      const metadata = await this.imageStat(reference);
       if (!metadata.isFile() || metadata.size > MAX_IMAGE_BYTES) {
         throw new TypeError("reference image is missing or too large for prompt assistance");
       }
-      imageBase64 = (await this.readImage(imagePath)).toString("base64");
+      encodedImages.push((await this.readImage(reference)).toString("base64"));
     }
 
     const request = {
@@ -184,14 +189,14 @@ export class PromptAssistant {
           role: "user",
           content: [
             `Mode: ${mode === "edit" ? "Edit" : "Generate"}`,
-            imageBase64
-              ? "A reference image is attached. Use vision to ground the rewrite."
+            encodedImages.length > 0
+              ? `${encodedImages.length} ordered reference image${encodedImages.length === 1 ? " is" : "s are"} attached. They are Image 1 through Image ${encodedImages.length}. Use vision to ground the rewrite and preserve these numbers.`
               : mode === "edit"
                 ? "No reference pixels are available yet. Improve the edit instruction without inventing image details."
                 : "Improve this text-to-image prompt.",
             `User draft: ${prompt}`,
           ].join("\n"),
-          ...(imageBase64 ? { images: [imageBase64] } : {}),
+          ...(encodedImages.length > 0 ? { images: encodedImages } : {}),
         },
       ],
     };
@@ -216,7 +221,8 @@ export class PromptAssistant {
     return {
       prompt: rewritten,
       model,
-      usedVision: Boolean(imageBase64),
+      usedVision: encodedImages.length > 0,
+      referenceCount: encodedImages.length,
     };
   }
 }

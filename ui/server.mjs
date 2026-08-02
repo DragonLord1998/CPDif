@@ -15,6 +15,7 @@ import {
   PromptAssistant,
   resolvePromptAssistantConfig,
 } from "./lib/prompt-assistant.mjs";
+import { PidUpscaler } from "./lib/pid-upscaler.mjs";
 
 const UI_ROOT = path.dirname(fileURLToPath(import.meta.url));
 const MAX_BODY_BYTES = 64 * 1024;
@@ -84,6 +85,7 @@ export function createHttpServer({
   imageStore,
   loraStore,
   promptAssistant,
+  pidUpscaler,
   publicDir = path.join(UI_ROOT, "public"),
 } = {}) {
   const runtimeConfig = config ?? resolveRuntimeConfig({ uiRoot: UI_ROOT });
@@ -110,11 +112,14 @@ export function createHttpServer({
     });
   const assistant =
     promptAssistant ?? new PromptAssistant(resolvePromptAssistantConfig());
+  const upscaler = pidUpscaler ?? new PidUpscaler(runtimeConfig);
   const activeJobStatuses = new Set(["queued", "running", "cancelling"]);
   let assistantBusy = false;
+  let pidBusy = false;
   let nativeStartReservations = 0;
 
   const nativeWorkflowActive = () =>
+    pidBusy ||
     nativeStartReservations > 0 ||
     jobs.list().some((job) => activeJobStatuses.has(job.status));
 
@@ -165,36 +170,44 @@ export function createHttpServer({
         assistantBusy = true;
         try {
           const body = await readJsonBody(request);
-          let imagePath = null;
-          if (body.image != null) {
+          if (body.image != null && body.images != null) {
+            throw new TypeError("use image or images, not both");
+          }
+          const references = body.images ?? (body.image != null ? [body.image] : []);
+          if (!Array.isArray(references) || references.length > 4) {
+            throw new TypeError("prompt rewrite accepts at most four image references");
+          }
+          const imagePaths = references.map((reference, index) => {
             if (
-              typeof body.image !== "object" ||
-              Array.isArray(body.image)
+              typeof reference !== "object" ||
+              reference === null ||
+              Array.isArray(reference)
             ) {
-              throw new TypeError("prompt rewrite image reference is invalid");
+              throw new TypeError(`prompt rewrite image ${index + 1} is invalid`);
             }
-            const uploaded = typeof body.image.sourceId === "string";
+            const uploaded = typeof reference.sourceId === "string";
             const completed =
-              typeof body.image.jobId === "string" &&
-              typeof body.image.stageId === "string";
+              typeof reference.jobId === "string" &&
+              typeof reference.stageId === "string";
             if (uploaded === completed) {
               throw new TypeError(
-                "prompt rewrite image must identify one upload or completed job stage",
+                `prompt rewrite image ${index + 1} must identify one upload or completed job stage`,
               );
             }
-            imagePath = uploaded
-              ? images.path(body.image.sourceId)
-              : jobs.imagePath(body.image.jobId, body.image.stageId);
+            const imagePath = uploaded
+              ? images.path(reference.sourceId)
+              : jobs.imagePath(reference.jobId, reference.stageId);
             if (!imagePath) {
-              throw new TypeError("prompt rewrite reference image is not available");
+              throw new TypeError(`prompt rewrite image ${index + 1} is not available`);
             }
-          }
+            return imagePath;
+          });
           sendJson(
             response,
             200,
             await assistant.rewrite(
               { mode: body.mode, prompt: body.prompt },
-              { imagePath },
+              { imagePaths },
             ),
           );
         } finally {
@@ -212,6 +225,10 @@ export function createHttpServer({
       if (request.method === "POST" && pathname === "/api/jobs") {
         if (assistantBusy) {
           sendError(response, 409, "wait for prompt improvement to finish before starting CPDif");
+          return;
+        }
+        if (pidBusy) {
+          sendError(response, 409, "wait for NVIDIA PiD upscaling to finish before starting CPDif");
           return;
         }
         nativeStartReservations += 1;
@@ -251,6 +268,65 @@ export function createHttpServer({
           return;
         }
         sendJson(response, 200, job);
+        return;
+      }
+
+      const upscaleMatch = pathname.match(
+        /^\/api\/jobs\/([a-f0-9-]+)\/images\/([a-z][a-z0-9-]{0,31})\/upscale$/,
+      );
+      if (upscaleMatch && request.method === "POST") {
+        const spec = jobs.upscaleSpec?.(upscaleMatch[1], upscaleMatch[2]);
+        if (!spec) {
+          sendError(response, 404, "completed Klein output not found");
+          return;
+        }
+        if (await upscaler.cached(spec)) {
+          sendJson(response, 200, {
+            image: { url: spec.url, scale: 4, model: "NVIDIA PiD", cached: true },
+          });
+          return;
+        }
+        if (assistantBusy || nativeWorkflowActive()) {
+          sendError(response, 409, "wait for the active GPU task before using NVIDIA PiD");
+          return;
+        }
+        pidBusy = true;
+        try {
+          const status = await readiness(runtimeConfig);
+          if (status.features?.pidUpscale?.ready !== true) {
+            sendJson(response, 503, {
+              error: "NVIDIA PiD source or FLUX.2 checkpoints are not ready",
+              status: status.features?.pidUpscale ?? null,
+            });
+            return;
+          }
+          await upscaler.upscale(spec);
+          sendJson(response, 200, {
+            image: { url: spec.url, scale: 4, model: "NVIDIA PiD", cached: false },
+          });
+        } finally {
+          pidBusy = false;
+        }
+        return;
+      }
+
+      const upscaledImageMatch = pathname.match(
+        /^\/api\/jobs\/([a-f0-9-]+)\/images\/([a-z][a-z0-9-]{0,31})\/upscaled$/,
+      );
+      if (upscaledImageMatch && request.method === "GET") {
+        const spec = jobs.upscaleSpec?.(upscaledImageMatch[1], upscaledImageMatch[2]);
+        if (!spec || !(await upscaler.cached(spec))) {
+          sendError(response, 404, "upscaled image not found");
+          return;
+        }
+        response.writeHead(200, {
+          "Content-Type": "image/png",
+          "Cache-Control": "private, max-age=31536000, immutable",
+          "X-Content-Type-Options": "nosniff",
+        });
+        createReadStream(spec.outputPath)
+          .on("error", () => response.destroy())
+          .pipe(response);
         return;
       }
 
@@ -330,7 +406,10 @@ export function createHttpServer({
     }
   });
 
-  server.on("close", () => jobs.shutdown?.());
+  server.on("close", () => {
+    jobs.shutdown?.();
+    upscaler.shutdown?.();
+  });
   return {
     server,
     config: runtimeConfig,
@@ -338,6 +417,7 @@ export function createHttpServer({
     imageStore: images,
     loraStore: loras,
     promptAssistant: assistant,
+    pidUpscaler: upscaler,
   };
 }
 

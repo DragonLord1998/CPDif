@@ -29,9 +29,10 @@ not depend on ComfyUI, a notebook UI, a tunnel, or a Python inference runtime.
 - Lossless low-latency PNG output and telemetry for load, generation, encoding,
   residency, and streaming state.
 - Dependency-free Node 20+ UI with automatic Generate/Edit node inference,
-  multi-stage outputs, a serialized GPU queue, cancellation, readiness checks,
-  native logs, telemetry timings, and optional local Qwen vision prompt
-  rewriting grounded in Black Forest Labs' prompting guidance.
+  up to four numbered references per Klein node, explicit connectable Output
+  nodes, node-local execution, a serialized GPU queue, cancellation, readiness
+  checks, native logs, telemetry timings, optional local Qwen vision prompt
+  rewriting, and optional NVIDIA PiD 4× Output upscaling.
 - Offline CPU build mode for repository/CLI tests without model weights.
 
 This is the integration baseline, not yet a clean-room implementation of every
@@ -55,8 +56,9 @@ The generated notebook is
 Cell 1 reserves the private, session-bound Colab proxy URL. Cell 2 restores the
 published `sm80` or `sm120` build cache, verifies the native build and model
 assets, starts the Node UI, and prints plus embeds the ready URL. The launcher
-also prepares the optional Qwen3.5 9B Ollama vision assistant in the background;
-the UI remains usable while its separate model download completes. The launcher
+also prepares the optional Qwen3.5 9B Ollama vision assistant and NVIDIA PiD
+FLUX.2 4× checkpoints in the background; the UI remains usable while their
+separate downloads complete. The launcher
 rejects other GPU architectures because no validated release cache is
 published for them.
 
@@ -275,12 +277,14 @@ CPDIF_WORKDIR=/content/cpdif-work CPDIF_UI_HOST=0.0.0.0 npm start
 ```
 
 Open port `4173`. The server detects the standard `build-a100` and `build-sm120`
-layouts, queues one GPU job at a time, and always launches the exact four-step
-Klein 9B-KV path. Add uploaded Image nodes and up to eight Klein nodes: no
-incoming image connection means Generate, while a connection to an uploaded
-image or earlier Klein output means Edit. The server fuses a compatible
-Generate → Edit pair into one native context. The LoRA downloader is a separate
-stored-only node below the Klein chain. No `npm install` is required. Each Klein
+layouts, queues one GPU task at a time, and always launches the exact four-step
+Klein 9B-KV path. Add uploaded Image, Klein, and Output nodes: no incoming image
+connection means Generate, while one to four numbered connections mean Edit.
+Each Generate/Edit button runs only that Klein node and consumes completed source
+outputs without rerunning upstream nodes. Output nodes can connect independently
+to any Klein result and optionally cache a 4× NVIDIA PiD version. The LoRA
+downloader is a separate stored-only node below the Klein chain. No `npm install`
+is required. Each Klein
 node can optionally improve its prompt through the loopback-only Qwen vision
 assistant and restore the original with Undo. See [`ui/README.md`](ui/README.md)
 for path overrides and validation.

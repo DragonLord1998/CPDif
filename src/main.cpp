@@ -39,7 +39,8 @@ void print_help() {
         << "  cpdif backend\n"
         << "  cpdif validate [generation options]\n"
         << "  cpdif generate [generation options]\n"
-        << "  cpdif edit --reference-image PATH [generation options]\n"
+        << "  cpdif edit --reference-image PATH [--reference-image PATH ...] "
+           "[generation options]\n"
         << "  cpdif generate-edit --edit-prompt TEXT --edited-output PATH "
            "[generation options]\n\n"
         << "Required generation options:\n"
@@ -48,10 +49,11 @@ void print_help() {
         << "  --vae PATH             FLUX.2 VAE\n"
         << "  --prompt TEXT          Prompt to render\n\n"
         << "Required for edit:\n"
-        << "  --reference-image PATH Source image to preserve and edit\n\n"
+        << "  --reference-image PATH Source image to preserve and edit; repeat up to 4\n\n"
         << "Required for generate-edit:\n"
-        << "  --edit-prompt TEXT     Prompt for the reference-image edit\n"
-        << "  --edited-output PATH   PNG output for the edited image\n\n"
+        << "  --edit-prompt TEXT     Prompt for the edit; generated image is ref #1\n"
+        << "  --edited-output PATH   PNG output for the edited image\n"
+        << "  --reference-image PATH Optional extra reference; repeat up to 3\n\n"
         << "Optional:\n"
         << "  --output PATH          PNG output (default: output.png)\n"
         << "  --telemetry PATH       JSON timing/backend output\n"
@@ -193,7 +195,7 @@ cpdif::RuntimeConfig parse_config(
         } else if (option == "--vae") {
             config.vae_path = value();
         } else if (option == "--reference-image") {
-            config.reference_image_path = value();
+            config.reference_image_paths.push_back(value());
         } else if (option == "--prompt") {
             config.prompt = value();
         } else if (option == "--output") {
@@ -416,7 +418,11 @@ int main(int argc, char** argv) {
             2,
             mode,
             generate_edit ? &generate_edit_options : nullptr);
-        const auto errors = cpdif::validate(config, true);
+        cpdif::RuntimeConfig validation_config = config;
+        if (generate_edit) {
+            validation_config.reference_image_paths.clear();
+        }
+        const auto errors = cpdif::validate(validation_config, true);
         if (!errors.empty()) {
             print_validation_errors(errors);
             return 2;
@@ -426,6 +432,21 @@ int main(int argc, char** argv) {
             return 0;
         }
         if (generate_edit) {
+            if (config.reference_image_paths.size() > 3) {
+                throw UsageError(
+                    "generate-edit accepts at most 3 additional --reference-image values "
+                    "because the generated image is reference #1");
+            }
+            if (!config.reference_image_paths.empty()) {
+                cpdif::RuntimeConfig additional_refs_config = config;
+                additional_refs_config.mode = cpdif::GenerationMode::image_edit;
+                const auto additional_ref_errors =
+                    cpdif::validate(additional_refs_config, true);
+                if (!additional_ref_errors.empty()) {
+                    print_validation_errors(additional_ref_errors);
+                    return 2;
+                }
+            }
             if (generate_edit_options.prompt.empty()) {
                 throw UsageError("--edit-prompt is required for generate-edit");
             }
@@ -481,6 +502,7 @@ int main(int argc, char** argv) {
         for (int request_index = 0; request_index < request_count; ++request_index) {
             cpdif::RuntimeConfig run_config = config;
             if (generate_edit) {
+                run_config.reference_image_paths.clear();
                 run_config.output_path = expand_indexed_path(
                     "--output", config.output_path, request_index, request_count);
                 run_config.telemetry_path = expand_indexed_path(
@@ -500,7 +522,11 @@ int main(int argc, char** argv) {
 
             cpdif::RuntimeConfig edit_config = run_config;
             edit_config.mode = cpdif::GenerationMode::image_edit;
-            edit_config.reference_image_path = run_config.output_path;
+            edit_config.reference_image_paths = {run_config.output_path};
+            edit_config.reference_image_paths.insert(
+                edit_config.reference_image_paths.end(),
+                config.reference_image_paths.begin(),
+                config.reference_image_paths.end());
             edit_config.prompt = generate_edit_options.prompt;
             edit_config.output_path = expand_indexed_path(
                 "--edited-output",

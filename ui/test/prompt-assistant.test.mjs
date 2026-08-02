@@ -79,6 +79,33 @@ test("rewrites with BFL rules and unloads the model after text or vision use", a
   assert.match(FLUX2_PROMPT_SYSTEM, /what must remain unchanged/);
 });
 
+test("numbers multiple vision references in the same order sent by the Klein node", async () => {
+  const requests = [];
+  const assistant = new PromptAssistant(
+    resolvePromptAssistantConfig({ env: {} }),
+    {
+      fetchImpl: async (_url, options) => {
+        requests.push(JSON.parse(options.body));
+        return jsonResponse({ message: { content: '{"prompt":"Use Image 1 and Image 2"}' } });
+      },
+      imageStat: async () => ({ isFile: () => true, size: 3 }),
+      readImage: async (imagePath) => Buffer.from(imagePath),
+    },
+  );
+  const result = await assistant.rewrite(
+    { mode: "edit", prompt: "combine them" },
+    { imagePaths: ["/jobs/one.png", "/jobs/two.png"] },
+  );
+  assert.equal(result.referenceCount, 2);
+  assert.deepEqual(
+    requests[0].messages[1].images,
+    ["/jobs/one.png", "/jobs/two.png"].map((value) =>
+      Buffer.from(value).toString("base64"),
+    ),
+  );
+  assert.match(requests[0].messages[1].content, /Image 1 through Image 2/);
+});
+
 test("rejects invalid prompt modes and malformed model output", async () => {
   const assistant = new PromptAssistant(
     resolvePromptAssistantConfig({ env: {} }),

@@ -54,7 +54,7 @@ struct RuntimeConfig {
     std::string transformer_path;
     std::string text_encoder_path;
     std::string vae_path;
-    std::string reference_image_path;
+    std::vector<std::string> reference_image_paths;
     std::string prompt;
     std::string output_path = "output.png";
     std::string telemetry_path;

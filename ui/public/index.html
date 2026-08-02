@@ -8,7 +8,7 @@
       content="A visual node canvas for CPDif FLUX.2 Klein 9B-KV image generation and editing."
     />
     <title>Klein Studio · CPDif</title>
-    <link rel="stylesheet" href="/styles.css?v=20260802.10" />
+    <link rel="stylesheet" href="/styles.css?v=20260802.12" />
   </head>
   <body>
     <header class="app-header">
@@ -39,7 +39,7 @@
     <main class="workspace" id="workspace">
       <div class="canvas-toolbar">
         <span class="canvas-title">Generation canvas</span>
-        <span class="tip">No image wire = Generate · Image wire = Edit</span>
+        <span class="tip">0 images = Generate · 1–4 ordered images = Edit</span>
         <span id="prompt-assistant-status" class="assistant-status" data-state="checking" role="status">
           <span class="assistant-dot" aria-hidden="true"></span>
           <span class="assistant-status-text">Qwen checking…</span>
@@ -49,6 +49,9 @@
         </button>
         <button id="add-klein-node" class="add-node-button" type="button">
           ＋ Klein node
+        </button>
+        <button id="add-output-node" class="add-node-button secondary" type="button">
+          ＋ Output node
         </button>
         <div class="zoom" aria-label="Canvas zoom controls">
           <button id="zoom-out" type="button" aria-label="Zoom out">−</button>
@@ -158,6 +161,39 @@
           </div>
           <span class="resize-handle" aria-label="Resize output node"></span>
         </section>
+
+        <template id="stage-output-template">
+          <section class="node stage-output-node" data-min-w="280" data-min-h="300">
+            <span class="port port-in"></span>
+            <span class="port-label in">Image</span>
+            <div class="node-head">
+              <span class="node-icon" aria-hidden="true">◦</span>
+              <span class="output-node-title">Output</span>
+              <button class="remove-output-node" type="button" title="Remove output node" aria-label="Remove output node">×</button>
+            </div>
+            <div class="output-node-body">
+              <label class="output-source-field">
+                <span>Klein source</span>
+                <select class="output-source" aria-label="Output node Klein source"></select>
+              </label>
+              <img class="output-node-image" alt="Stage output" hidden />
+              <div class="output-node-placeholder">
+                <span>Connect a Klein node and run it</span>
+              </div>
+              <div class="output-node-actions">
+                <button class="pid-upscale-output" type="button" title="Upscale this output 4x with NVIDIA PiD">
+                  <span class="pid-button-spinner" aria-hidden="true"></span>
+                  <span class="pid-button-text">4× NVIDIA PiD</span>
+                </button>
+                <button class="original-output" type="button" hidden>Original</button>
+                <button class="download-node-output" type="button" title="Download this output" aria-label="Download this output">↓</button>
+                <button class="expand-node-output" type="button" title="Expand this output" aria-label="Expand this output">↗</button>
+              </div>
+              <p class="pid-output-status" role="status">PiD 4× becomes available when its Colab setup is ready.</p>
+            </div>
+            <span class="resize-handle" aria-label="Resize stage output node"></span>
+          </section>
+        </template>
       </div>
     </main>
 
@@ -191,9 +227,7 @@
     </template>
 
     <template id="klein-node-template">
-      <section class="node klein-node" data-min-w="350" data-min-h="420">
-        <span class="port port-in"></span>
-        <span class="port-label in">Image</span>
+      <section class="node klein-node" data-min-w="410" data-min-h="540">
         <span class="port port-out"></span>
         <span class="port-label out">Output</span>
         <div class="node-head">
@@ -203,11 +237,14 @@
           <button class="remove-node" type="button" title="Remove node" aria-label="Remove Klein node">×</button>
         </div>
         <div class="node-body flux-body">
-          <label class="connection-field">
-            <span>Image input</span>
-            <select class="image-source" aria-label="Image input connection"></select>
+          <div class="reference-panel">
+            <div class="reference-heading">
+              <span>Image inputs</span>
+              <small class="reference-count">0 / 4 connected</small>
+            </div>
+            <div class="reference-grid" aria-label="Ordered reference images"></div>
             <small class="mode-hint">No image connected · Generate mode</small>
-          </label>
+          </div>
           <div class="field-label">
             <span class="prompt-label">Describe the image</span>
             <span class="prompt-tools">
@@ -239,7 +276,7 @@
             </div>
           </div>
           <div class="actions">
-            <button class="generate run-workflow" type="submit">
+            <button class="generate run-workflow" type="button">
               <span class="spinner" aria-hidden="true"></span>
               <span class="run-workflow-text">✦ Generate</span>
             </button>
@@ -260,6 +297,6 @@
     </dialog>
     <div class="toast" id="toast" role="status">Done</div>
 
-    <script type="module" src="/app.js?v=20260802.10"></script>
+    <script type="module" src="/app.js?v=20260802.12"></script>
   </body>
 </html>

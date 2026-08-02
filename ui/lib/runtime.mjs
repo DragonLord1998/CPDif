@@ -8,9 +8,11 @@ const IMAGE_SIZES = new Set([512, 768, 1024]);
 const MAX_PROMPT_LENGTH = 4_000;
 const MAX_LOG_LENGTH = 1_000_000;
 const MAX_STAGES = 8;
+const MAX_REFERENCE_IMAGES = 4;
 const DEFAULT_KILL_GRACE_MS = 5_000;
 const STAGE_ID = /^[a-z][a-z0-9-]{0,31}$/;
 const IMAGE_ID = /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/;
+const JOB_ID = IMAGE_ID;
 
 function firstExisting(paths) {
   return paths.find((candidate) => existsSync(candidate)) ?? paths[0];
@@ -32,6 +34,7 @@ export function resolveRuntimeConfig({ env = process.env, uiRoot } = {}) {
 
   const workDir = path.resolve(env.CPDIF_WORKDIR ?? "/content/cpdif-work");
   const modelDir = path.join(workDir, "models");
+  const pidRoot = path.resolve(env.CPDIF_PID_ROOT ?? path.join(workDir, "PiD"));
   const binary = path.resolve(
     env.CPDIF_BIN ??
       firstExisting([
@@ -75,6 +78,25 @@ export function resolveRuntimeConfig({ env = process.env, uiRoot } = {}) {
       env.CPDIF_UI_IMAGE_DIR ?? path.join(uiRoot, "data", "images"),
     ),
     loraDir: path.resolve(env.CPDIF_LORA_DIR ?? path.join(workDir, "loras")),
+    pidRoot,
+    pidPython: env.CPDIF_PID_PYTHON ?? "python3",
+    pidScript: path.resolve(
+      env.CPDIF_PID_SCRIPT ?? path.join(uiRoot, "..", "scripts", "pid", "upscale_4x.py"),
+    ),
+    pidFlux2Vae: path.join(pidRoot, "checkpoints", "flux2_ae.safetensors"),
+    pidCheckpoint2k: path.join(
+      pidRoot,
+      "checkpoints",
+      "PiD_res2k_sr4x_official_flux2_distill_4step",
+      "model_ema_bf16.pth",
+    ),
+    pidCheckpoint4k: path.join(
+      pidRoot,
+      "checkpoints",
+      "PiD_v1pt5_res2kto4k_sr4x_official_flux2_distill_4step",
+      "model_ema_bf16.pth",
+    ),
+    pidReadyMarker: path.join(pidRoot, ".cpdif-pid-ready"),
     maxImageBytes:
       Number.isSafeInteger(maxImageBytes) && maxImageBytes > 0
         ? maxImageBytes
@@ -104,9 +126,27 @@ export async function runtimeReadiness(config) {
     textEncoder: await isAccessible(config.textEncoder, constants.R_OK),
     vae: await isAccessible(config.vae, constants.R_OK),
   };
+  const pidChecks = {
+    script: await isAccessible(config.pidScript, constants.R_OK),
+    source: await isAccessible(
+      path.join(config.pidRoot, "pid", "_src", "inference", "from_clean.py"),
+      constants.R_OK,
+    ),
+    flux2Vae: await isAccessible(config.pidFlux2Vae, constants.R_OK),
+    checkpoint2k: await isAccessible(config.pidCheckpoint2k, constants.R_OK),
+    checkpoint4k: await isAccessible(config.pidCheckpoint4k, constants.R_OK),
+    environment: await isAccessible(config.pidReadyMarker, constants.R_OK),
+  };
   return {
     ready: Object.values(checks).every(Boolean),
     checks,
+    features: {
+      pidUpscale: {
+        ready: Object.values(pidChecks).every(Boolean),
+        checks: pidChecks,
+        profile: "NVIDIA PiD / FLUX.2 VAE / 4x",
+      },
+    },
     profile: "FLUX.2 Klein 9B-KV Q8 / CUDA / 4 steps",
     maxVram: config.maxVram || null,
   };
@@ -149,6 +189,45 @@ export function normalizeJobInput(payload) {
   });
 }
 
+function normalizeImageInput(input, label, knownIds) {
+  if (input === null || typeof input !== "object" || Array.isArray(input)) {
+    throw new TypeError(`${label} must be a JSON object`);
+  }
+  if (input.type === "stage") {
+    const stageId = String(input.stageId || "");
+    if (!knownIds.has(stageId)) {
+      throw new TypeError(`${label} must reference an earlier stage`);
+    }
+    return Object.freeze({ type: "stage", stageId });
+  }
+  if (input.type === "upload") {
+    const imageId = String(input.imageId || "");
+    if (!IMAGE_ID.test(imageId)) {
+      throw new TypeError(`${label} uploaded image id is invalid`);
+    }
+    return Object.freeze({ type: "upload", imageId });
+  }
+  if (input.type === "job") {
+    const jobId = String(input.jobId || "");
+    const stageId = String(input.stageId || "");
+    if (!JOB_ID.test(jobId) || !STAGE_ID.test(stageId)) {
+      throw new TypeError(`${label} completed output reference is invalid`);
+    }
+    return Object.freeze({ type: "job", jobId, stageId });
+  }
+  throw new TypeError(`${label} type must be stage, upload, or job`);
+}
+
+function imageInputKey(input) {
+  if (input.type === "stage") {
+    return `stage:${input.stageId}`;
+  }
+  if (input.type === "upload") {
+    return `upload:${input.imageId}`;
+  }
+  return `job:${input.jobId}:${input.stageId}`;
+}
+
 function normalizeStage(stage, index, payload, knownIds) {
   if (stage === null || typeof stage !== "object" || Array.isArray(stage)) {
     throw new TypeError(`stage ${index + 1} must be a JSON object`);
@@ -159,16 +238,32 @@ function normalizeStage(stage, index, payload, knownIds) {
       `stage ${index + 1} id must be unique and use lowercase letters, numbers, or dashes`,
     );
   }
-  const inputStageId = stage.inputStageId == null ? null : String(stage.inputStageId);
-  const inputImageId = stage.inputImageId == null ? null : String(stage.inputImageId);
-  if (inputStageId !== null && inputImageId !== null) {
-    throw new TypeError(`stage ${id} must have at most one image input`);
+  const legacyStageId = stage.inputStageId == null ? null : String(stage.inputStageId);
+  const legacyImageId = stage.inputImageId == null ? null : String(stage.inputImageId);
+  if (stage.imageInputs !== undefined && (legacyStageId !== null || legacyImageId !== null)) {
+    throw new TypeError(`stage ${id} cannot mix imageInputs with legacy image fields`);
   }
-  if (inputStageId !== null && !knownIds.has(inputStageId)) {
-    throw new TypeError(`stage ${id} image input must reference an earlier stage`);
+  if (legacyStageId !== null && legacyImageId !== null) {
+    throw new TypeError(`stage ${id} must have at most one legacy image input`);
   }
-  if (inputImageId !== null && !IMAGE_ID.test(inputImageId)) {
-    throw new TypeError(`stage ${id} uploaded image id is invalid`);
+  const rawInputs = stage.imageInputs === undefined
+    ? legacyStageId !== null
+      ? [{ type: "stage", stageId: legacyStageId }]
+      : legacyImageId !== null
+        ? [{ type: "upload", imageId: legacyImageId }]
+        : []
+    : stage.imageInputs;
+  if (!Array.isArray(rawInputs) || rawInputs.length > MAX_REFERENCE_IMAGES) {
+    throw new TypeError(`stage ${id} must contain at most ${MAX_REFERENCE_IMAGES} image inputs`);
+  }
+  const imageInputs = Object.freeze(
+    rawInputs.map((input, inputIndex) =>
+      normalizeImageInput(input, `stage ${id} image ${inputIndex + 1}`, knownIds),
+    ),
+  );
+  const inputKeys = imageInputs.map(imageInputKey);
+  if (new Set(inputKeys).size !== inputKeys.length) {
+    throw new TypeError(`stage ${id} image inputs must be unique`);
   }
   const width = Number(stage.width ?? payload.width ?? 1024);
   const height = Number(stage.height ?? payload.height ?? 1024);
@@ -180,11 +275,20 @@ function normalizeStage(stage, index, payload, knownIds) {
     throw new TypeError(`stage ${id} seed must be an integer between 0 and 2147483646`);
   }
   knownIds.add(id);
+  const inputStageId =
+    imageInputs.length === 1 && imageInputs[0].type === "stage"
+      ? imageInputs[0].stageId
+      : null;
+  const inputImageId =
+    imageInputs.length === 1 && imageInputs[0].type === "upload"
+      ? imageInputs[0].imageId
+      : null;
   return Object.freeze({
     id,
     inputStageId,
     inputImageId,
-    mode: inputStageId === null && inputImageId === null ? "generate" : "edit",
+    imageInputs,
+    mode: imageInputs.length === 0 ? "generate" : "edit",
     prompt: readPrompt(stage, "prompt", `stage ${id} prompt`),
     width,
     height,
@@ -204,6 +308,7 @@ export function normalizeWorkflowInput(payload) {
           id: "source",
           inputStageId: null,
           inputImageId: null,
+          imageInputs: Object.freeze([]),
           mode: "generate",
           prompt: legacy.prompt,
           width: legacy.width,
@@ -214,6 +319,9 @@ export function normalizeWorkflowInput(payload) {
           id: "edited",
           inputStageId: "source",
           inputImageId: null,
+          imageInputs: Object.freeze([
+            Object.freeze({ type: "stage", stageId: "source" }),
+          ]),
           mode: "edit",
           prompt: legacy.editPrompt,
           width: legacy.width,
@@ -230,13 +338,12 @@ export function normalizeWorkflowInput(payload) {
     throw new TypeError(`workflow must contain at most ${MAX_STAGES} Klein stages`);
   }
   const knownIds = new Set();
-  return Object.freeze({
-    stages: Object.freeze(
-      payload.stages.map((stage, index) =>
-        normalizeStage(stage, index, payload, knownIds),
-      ),
+  const stages = Object.freeze(
+    payload.stages.map((stage, index) =>
+      normalizeStage(stage, index, payload, knownIds),
     ),
-  });
+  );
+  return Object.freeze({ stages });
 }
 
 export function jobPaths(outputDir, jobId) {
@@ -303,13 +410,20 @@ function commonCpdifArgs(config, stage, { kleinKvCache }) {
 
 function canFuseStages(source, edited) {
   return (
-    source.inputStageId === null &&
-    source.inputImageId === null &&
-    edited?.inputStageId === source.id &&
-    edited?.inputImageId === null &&
+    source.imageInputs.length === 0 &&
+    edited?.imageInputs.length === 1 &&
+    edited.imageInputs[0].type === "stage" &&
+    edited.imageInputs[0].stageId === source.id &&
     source.width === edited.width &&
     source.height === edited.height
   );
+}
+
+function referenceImagePath(input, paths, sourceImages) {
+  if (input.type === "stage") {
+    return paths.stageById.get(input.stageId)?.image ?? null;
+  }
+  return sourceImages.get(imageInputKey(input)) ?? null;
 }
 
 export function buildWorkflowCommands(config, input, paths, sourceImages = new Map()) {
@@ -358,16 +472,15 @@ export function buildWorkflowCommands(config, input, paths, sourceImages = new M
       stagePaths.telemetry,
     ];
     if (edit) {
-      const referenceImage = stage.inputStageId
-        ? paths.stageById.get(stage.inputStageId)?.image
-        : sourceImages.get(stage.inputImageId);
-      if (!referenceImage) {
-        throw new TypeError(`uploaded image for stage ${stage.id} is not available`);
+      for (const [referenceIndex, inputImage] of stage.imageInputs.entries()) {
+        const referenceImage = referenceImagePath(inputImage, paths, sourceImages);
+        if (!referenceImage) {
+          throw new TypeError(
+            `image ${referenceIndex + 1} for stage ${stage.id} is not available`,
+          );
+        }
+        args.push("--reference-image", referenceImage);
       }
-      args.push(
-        "--reference-image",
-        referenceImage,
-      );
     }
     commands.push(Object.freeze({ stageIds: [stage.id], args }));
   }
@@ -476,12 +589,19 @@ export class JobManager {
     const input = normalizeWorkflowInput(payload);
     const sourceImages = new Map();
     for (const stage of input.stages) {
-      if (stage.inputImageId) {
-        const imagePath = this.resolveImageSource(stage.inputImageId);
-        if (!imagePath) {
-          throw new TypeError(`uploaded image for stage ${stage.id} is not available`);
+      for (const inputImage of stage.imageInputs) {
+        if (inputImage.type === "stage") {
+          continue;
         }
-        sourceImages.set(stage.inputImageId, imagePath);
+        const imagePath = inputImage.type === "upload"
+          ? this.resolveImageSource(inputImage.imageId)
+          : this.imagePath(inputImage.jobId, inputImage.stageId);
+        if (!imagePath) {
+          throw new TypeError(
+            `${imageInputKey(inputImage)} for stage ${stage.id} is not available`,
+          );
+        }
+        sourceImages.set(imageInputKey(inputImage), imagePath);
       }
     }
     const id = this.idFactory();
@@ -523,6 +643,22 @@ export class JobManager {
       return null;
     }
     return job.paths.stageById.get(stageId)?.image ?? null;
+  }
+
+  upscaleSpec(id, stageId) {
+    const job = this.jobs.get(id);
+    const stage = job?.input.stages.find((candidate) => candidate.id === stageId);
+    const stagePaths = job?.paths.stageById.get(stageId);
+    if (!job || job.status !== "completed" || !stage || !stagePaths) {
+      return null;
+    }
+    return Object.freeze({
+      inputPath: stagePaths.image,
+      outputPath: path.join(job.paths.directory, `${stageId}-pid4x.png`),
+      prompt: stage.prompt,
+      seed: stage.seed,
+      url: `/api/jobs/${id}/images/${stageId}/upscaled`,
+    });
   }
 
   cancel(id) {

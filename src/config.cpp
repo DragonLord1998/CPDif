@@ -1,10 +1,13 @@
 #include "cpdif/config.hpp"
 
+#include <cstddef>
 #include <filesystem>
 #include <sstream>
 
 namespace cpdif {
 namespace {
+
+constexpr std::size_t kMaxReferenceImages = 4;
 
 void validate_model_file(
     const std::string& label,
@@ -40,9 +43,19 @@ std::vector<std::string> validate(const RuntimeConfig& config, bool require_file
     validate_model_file("VAE", config.vae_path, require_files, errors);
 
     if (config.mode == GenerationMode::image_edit) {
-        validate_model_file(
-            "reference image", config.reference_image_path, require_files, errors);
-    } else if (!config.reference_image_path.empty()) {
+        if (config.reference_image_paths.empty()) {
+            errors.emplace_back("reference image path is required");
+        } else if (config.reference_image_paths.size() > kMaxReferenceImages) {
+            errors.emplace_back("edit mode supports at most 4 reference images");
+        }
+        for (std::size_t index = 0; index < config.reference_image_paths.size(); ++index) {
+            validate_model_file(
+                "reference image #" + std::to_string(index + 1),
+                config.reference_image_paths[index],
+                require_files,
+                errors);
+        }
+    } else if (!config.reference_image_paths.empty()) {
         errors.emplace_back("reference image is only valid in edit mode");
     }
 

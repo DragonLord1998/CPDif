@@ -48,11 +48,24 @@ int main() {
         return 1;
     }
 
-    valid.reference_image_path = "cat.png";
+    valid.reference_image_paths = {"cat.png"};
     if (!cpdif::validate(valid, false).empty()) {
         std::cerr << "expected edit configuration to pass structural validation\n";
         return 1;
     }
+
+    valid.reference_image_paths = {"cat.png", "style.png", "pose.png", "mask.png"};
+    if (!cpdif::validate(valid, false).empty()) {
+        std::cerr << "expected four-reference edit configuration to pass validation\n";
+        return 1;
+    }
+
+    valid.reference_image_paths.push_back("extra.png");
+    if (!contains(cpdif::validate(valid, false), "at most 4 reference images")) {
+        std::cerr << "expected five reference images to be rejected\n";
+        return 1;
+    }
+    valid.reference_image_paths = {"cat.png"};
 
     valid.mode = cpdif::GenerationMode::text_to_image;
     if (!contains(cpdif::validate(valid, false), "only valid in edit mode")) {
@@ -60,7 +73,7 @@ int main() {
         return 1;
     }
 
-    valid.reference_image_path.clear();
+    valid.reference_image_paths.clear();
     valid.qwen_image_layers = 65;
     if (!contains(cpdif::validate(valid, false), "Qwen image layers")) {
         std::cerr << "expected invalid Qwen image layer count to be rejected\n";

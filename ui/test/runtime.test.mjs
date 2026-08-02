@@ -107,7 +107,37 @@ test("infers Generate or Edit from each stage image connection", () => {
           },
         ],
       }),
-    /at most one image input/,
+    /at most one legacy image input/,
+  );
+});
+
+test("preserves up to four ordered upload and completed-job image inputs", () => {
+  const upload1 = "123e4567-e89b-42d3-a456-426614174000";
+  const upload2 = "223e4567-e89b-42d3-a456-426614174000";
+  const jobId = "323e4567-e89b-42d3-a456-426614174000";
+  const imageInputs = [
+    { type: "upload", imageId: upload1 },
+    { type: "job", jobId, stageId: "klein-2" },
+    { type: "upload", imageId: upload2 },
+    { type: "job", jobId, stageId: "klein-3" },
+  ];
+  const stage = normalizeWorkflowInput({
+    stages: [{ id: "klein-1", imageInputs, prompt: "Use Image 1 through Image 4" }],
+  }).stages[0];
+  assert.equal(stage.mode, "edit");
+  assert.deepEqual(stage.imageInputs, imageInputs);
+  assert.throws(
+    () =>
+      normalizeWorkflowInput({
+        stages: [
+          {
+            id: "klein-1",
+            imageInputs: [...imageInputs, { type: "job", jobId, stageId: "klein-4" }],
+            prompt: "too many",
+          },
+        ],
+      }),
+    /at most 4 image inputs/,
   );
 });
 
@@ -178,12 +208,49 @@ test("builds generate-only and fused connected workflow commands", () => {
     config,
     uploadInput,
     workflowPaths("/outputs", "upload", uploadInput),
-    new Map([[uploadId, "/uploads/reference.png"]]),
+    new Map([[`upload:${uploadId}`, "/uploads/reference.png"]]),
   )[0];
   assert.equal(uploadCommand.args[0], "edit");
   assert.equal(
     uploadCommand.args[uploadCommand.args.indexOf("--reference-image") + 1],
     "/uploads/reference.png",
+  );
+});
+
+test("emits repeated reference-image arguments in the user's numbered order", () => {
+  const uploadId = "123e4567-e89b-42d3-a456-426614174000";
+  const jobId = "323e4567-e89b-42d3-a456-426614174000";
+  const input = normalizeWorkflowInput({
+    stages: [
+      {
+        id: "klein-1",
+        imageInputs: [
+          { type: "job", jobId, stageId: "source" },
+          { type: "upload", imageId: uploadId },
+        ],
+        prompt: "Keep Image 1 and apply Image 2's palette",
+      },
+    ],
+  });
+  const command = buildWorkflowCommands(
+    {
+      transformer: "/models/kv.gguf",
+      textEncoder: "/models/qwen.safetensors",
+      vae: "/models/vae.safetensors",
+      maxVram: "",
+    },
+    input,
+    workflowPaths("/outputs", "job", input),
+    new Map([
+      [`job:${jobId}:source`, "/completed/source.png"],
+      [`upload:${uploadId}`, "/uploads/style.png"],
+    ]),
+  )[0];
+  assert.deepEqual(
+    command.args.flatMap((value, index) =>
+      value === "--reference-image" ? [command.args[index + 1]] : [],
+    ),
+    ["/completed/source.png", "/uploads/style.png"],
   );
 });
 
@@ -232,6 +299,30 @@ test("resolves the LoRA asset directory and bounded download limit", () => {
   assert.equal(config.imageDir, "/runtime/images");
   assert.equal(config.maxLoraBytes, 2048);
   assert.equal(config.maxImageBytes, 4096);
+  assert.equal(config.pidRoot, "/runtime/work/PiD");
+  assert.equal(config.pidPython, "python3");
+  assert.equal(config.pidScript, "/repo/scripts/pid/upscale_4x.py");
+});
+
+test("derives an immutable PiD 4x cache path from a completed stage", () => {
+  const input = normalizeWorkflowInput({
+    stages: [{ id: "klein-1", prompt: "a cat", seed: 91 }],
+  });
+  const manager = new JobManager({ outputDir: "/outputs" });
+  const id = "323e4567-e89b-42d3-a456-426614174000";
+  manager.jobs.set(id, {
+    id,
+    status: "completed",
+    input,
+    paths: workflowPaths("/outputs", id, input),
+  });
+  assert.deepEqual(manager.upscaleSpec(id, "klein-1"), {
+    inputPath: `/outputs/${id}/klein-1.png`,
+    outputPath: `/outputs/${id}/klein-1-pid4x.png`,
+    prompt: "a cat",
+    seed: 91,
+    url: `/api/jobs/${id}/images/klein-1/upscaled`,
+  });
 });
 
 test("forces a stuck cancelled process down and advances the GPU queue", async () => {

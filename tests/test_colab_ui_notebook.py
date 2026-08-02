@@ -8,6 +8,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 GENERATOR_PATH = REPO_ROOT / "scripts" / "colab" / "create_ui_notebook.py"
 NOTEBOOK_PATH = REPO_ROOT / "notebooks" / "CPDif_Klein_9B_UI_Colab.ipynb"
 PROMPT_ASSISTANT_SCRIPT = REPO_ROOT / "scripts" / "colab" / "11_prepare_prompt_assistant.sh"
+PID_SCRIPT = REPO_ROOT / "scripts" / "colab" / "12_prepare_pid.sh"
 
 
 def load_generator():
@@ -77,6 +78,21 @@ class ColabUiNotebookTests(unittest.TestCase):
         self.assertIn('"CPDIF_PROMPT_ASSISTANT_URL": "http://127.0.0.1:11434"', source)
         self.assertIn("Qwen downloads in the background", source)
 
+    def test_second_cell_prepares_optional_nvidia_pid_in_background(self):
+        source = self.sources[1]
+        self.assertIn("12_prepare_pid.sh", source)
+        self.assertIn("start_pid_setup", source)
+        self.assertIn('"CPDIF_PID_ROOT": str(CPDIF_WORKDIR / "PiD")', source)
+        self.assertIn("NVIDIA PiD downloads in the background", source)
+
+        setup = PID_SCRIPT.read_text(encoding="utf-8")
+        self.assertIn("2c8814c2b91cc41a2be7809962c891e0d0ccff5f", setup)
+        self.assertIn("HF_XET_HIGH_PERFORMANCE", setup)
+        self.assertIn("checkpoints/flux2_ae.safetensors", setup)
+        self.assertIn("PiD_res2k_sr4x_official_flux2_distill_4step", setup)
+        self.assertIn("PiD_v1pt5_res2kto4k_sr4x_official_flux2_distill_4step", setup)
+        self.assertNotIn("'checkpoints/*'", setup)
+
     def test_prompt_assistant_setup_is_loopback_only_and_unloads_between_requests(self):
         source = PROMPT_ASSISTANT_SCRIPT.read_text(encoding="utf-8")
         self.assertIn("OLLAMA_HOST=\"${OLLAMA_HOST:-127.0.0.1:11434}\"", source)
@@ -88,6 +104,7 @@ class ColabUiNotebookTests(unittest.TestCase):
     def test_notebook_does_not_print_or_pass_hugging_face_token_on_command_line(self):
         source = self.sources[1]
         self.assertIn('userdata.get("HF_TOKEN")', source)
+        self.assertIn('userdata.get("HF_Token")', source)
         self.assertIn('build_env["HF_TOKEN"] = hf_token', source)
         self.assertNotIn("print(hf_token", source)
         self.assertNotIn("--token", source)

@@ -105,6 +105,7 @@ CPDIF_UI_PID = CPDIF_WORKDIR / "cpdif-ui.pid"
 CPDIF_PROMPT_ASSISTANT_MODEL = "lukey03/qwen3.5-9b-abliterated-vision"
 CPDIF_PROMPT_SETUP_LOG = CPDIF_WORKDIR / "qwen-prompt-assistant-setup.log"
 CPDIF_OLLAMA_LOG = CPDIF_WORKDIR / "ollama.log"
+CPDIF_PID_SETUP_LOG = CPDIF_WORKDIR / "nvidia-pid-setup.log"
 
 
 def run(command, *, cwd=None, env=None):
@@ -243,6 +244,25 @@ def start_prompt_assistant_setup(env):
     return process
 
 
+def start_pid_setup(env):
+    pid_env = env.copy()
+    pid_env["CPDIF_PID_ROOT"] = str(CPDIF_WORKDIR / "PiD")
+    CPDIF_PID_SETUP_LOG.parent.mkdir(parents=True, exist_ok=True)
+    with CPDIF_PID_SETUP_LOG.open("w", encoding="utf-8") as log_file:
+        process = subprocess.Popen(
+            ["bash", CPDIF_REPO_DIR / "scripts/colab/12_prepare_pid.sh"],
+            env=pid_env,
+            stdout=log_file,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+        )
+    print(
+        "Preparing optional NVIDIA PiD 4x upscaling in the background. "
+        f"Progress: {{CPDIF_PID_SETUP_LOG}}"
+    )
+    return process
+
+
 def start_ui(architecture):
     stop_previous_ui()
     build_dir = "build-a100" if architecture == "80" else "build-sm120"
@@ -262,6 +282,8 @@ def start_ui(architecture):
             "CPDIF_PROMPT_ASSISTANT_ENABLED": "1",
             "CPDIF_PROMPT_ASSISTANT_URL": "http://127.0.0.1:11434",
             "CPDIF_PROMPT_ASSISTANT_MODEL": CPDIF_PROMPT_ASSISTANT_MODEL,
+            "CPDIF_PID_ROOT": str(CPDIF_WORKDIR / "PiD"),
+            "CPDIF_PID_PYTHON": "python3",
         }}
     )
     CPDIF_UI_LOG.parent.mkdir(parents=True, exist_ok=True)
@@ -336,7 +358,7 @@ build_env.update(
 try:
     from google.colab import userdata
 
-    hf_token = userdata.get("HF_TOKEN")
+    hf_token = userdata.get("HF_TOKEN") or userdata.get("HF_Token")
 except Exception:
     hf_token = None
 if hf_token:
@@ -354,6 +376,7 @@ run(["bash", CPDIF_REPO_DIR / "scripts/model/download_model.sh"], env=aux_model_
 run(["bash", CPDIF_REPO_DIR / "scripts/model/download_kv_q8_transformer.sh"], env=build_env)
 
 prompt_setup_process = start_prompt_assistant_setup(build_env)
+pid_setup_process = start_pid_setup(build_env)
 ui_process = start_ui(architecture)
 status = wait_until_ready(ui_process)
 CPDIF_PROXY_URL = reserve_proxy_if_needed()
@@ -362,6 +385,7 @@ print("\\nCPDif Studio is ready:")
 print(CPDIF_PROXY_URL)
 print("This private proxy URL works only while this Colab runtime remains connected.")
 print("Qwen downloads in the background; its studio badge turns green when vision prompting is ready.")
+print("NVIDIA PiD downloads in the background; Output-node 4x buttons enable when it is ready.")
 safe_url = html.escape(CPDIF_PROXY_URL, quote=True)
 display(
     HTML(
