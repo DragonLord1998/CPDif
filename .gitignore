@@ -5,6 +5,8 @@
 /outputs/
 /artifacts/
 /cache-exports/
+/ui/data/
+/ui/node_modules/
 *.safetensors
 *.gguf
 *.ckpt

@@ -87,6 +87,18 @@ class RepositoryContractTests(unittest.TestCase):
         self.assertIn("cpdif-gpu-build-cache-v4-sm", restore_text)
         self.assertIn("05_restore_cache.sh", restore_text)
 
+    def test_node_ui_wraps_the_exact_kv_backend_without_a_shell(self):
+        package = REPO_ROOT / "ui" / "package.json"
+        runtime = REPO_ROOT / "ui" / "lib" / "runtime.mjs"
+        server = REPO_ROOT / "ui" / "server.mjs"
+        self.assertTrue(package.is_file())
+        self.assertTrue(server.is_file())
+        runtime_text = runtime.read_text(encoding="utf-8")
+        self.assertIn('"--klein-kv-cache"', runtime_text)
+        self.assertIn('"--no-offload-to-cpu"', runtime_text)
+        self.assertIn("shell: false", runtime_text)
+        self.assertNotIn("exec(", runtime_text)
+
 
 if __name__ == "__main__":
     unittest.main()

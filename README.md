@@ -1,9 +1,10 @@
 # CPDif
 
-CPDif is a ComfyUI-free C++/CUDA command-line runtime for
+CPDif is a ComfyUI-free C++/CUDA runtime for
 `black-forest-labs/FLUX.2-klein-9B`. It uses the stable C API from a pinned
-`stable-diffusion.cpp` revision and keeps the application boundary independent
-from notebooks, Python inference frameworks, web servers, and future UI code.
+`stable-diffusion.cpp` revision. The native application boundary remains
+independent from notebooks and Python inference frameworks; an optional small
+Node UI wraps the same CLI contract without changing the engine.
 
 The engine is built and visually validated through the Google Colab CLI on an
 NVIDIA A100 40GB and an NVIDIA RTX PRO 6000 Blackwell Server Edition. It does
@@ -27,6 +28,8 @@ not depend on ComfyUI, a notebook UI, a tunnel, or a Python inference runtime.
   encoder, and FLUX.2 VAE downloads.
 - Lossless low-latency PNG output and telemetry for load, generation, encoding,
   residency, and streaming state.
+- Dependency-free Node 20+ UI with a serialized GPU queue, cancellation,
+  readiness checks, native logs, telemetry timings, and source/edit previews.
 - Offline CPU build mode for repository/CLI tests without model weights.
 
 This is the integration baseline, not yet a clean-room implementation of every
@@ -239,6 +242,21 @@ validated KV path reduces steady-state edit latency by 25.33% on A100 40GB and
 it uses `cpdif generate-edit` to generate one cat, write its lossless PNG, and
 pass the same RGB pixels directly to the edit stage without decoding the PNG or
 destroying and recreating the inference context.
+
+## Node UI
+
+After the GPU build and model downloads are ready on the same A100 or RTX PRO
+6000 host, start the optional UI:
+
+```bash
+cd ui
+CPDIF_WORKDIR=/content/cpdif-work CPDIF_UI_HOST=0.0.0.0 npm start
+```
+
+Open port `4173`. The server detects the standard `build-a100` and `build-sm120`
+layouts, queues one GPU job at a time, and always launches the exact four-step
+Klein 9B-KV path. No `npm install` is required. See
+[`ui/README.md`](ui/README.md) for path overrides and validation.
 
 ## Offline validation build
 

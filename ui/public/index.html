@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="A small native UI for CPDif FLUX.2 Klein 9B-KV image editing." />
+    <title>CPDif Studio</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="masthead">
+        <div>
+          <p class="eyebrow">CPDif · Native CUDA</p>
+          <h1>Fast image editing,<br /><span>without the framework.</span></h1>
+        </div>
+        <div class="runtime-card">
+          <span id="runtime-dot" class="runtime-dot"></span>
+          <div>
+            <strong id="runtime-label">Checking runtime…</strong>
+            <p id="runtime-detail">FLUX.2 Klein 9B-KV · 4 steps</p>
+          </div>
+        </div>
+      </header>
+
+      <section class="workspace">
+        <form id="job-form" class="prompt-panel">
+          <div class="section-heading">
+            <span>01</span>
+            <div>
+              <h2>Create and edit</h2>
+              <p>One native context. Exact KV-cache path.</p>
+            </div>
+          </div>
+
+          <label for="prompt">Source image prompt</label>
+          <textarea id="prompt" name="prompt" rows="5" required>A realistic orange tabby cat sitting in a softly lit gray studio, full body, centered composition</textarea>
+
+          <label for="edit-prompt">Edit instruction</label>
+          <textarea id="edit-prompt" name="editPrompt" rows="5" required>Keep the same cat, face, pose, fur, lighting, and background. Dress the cat in a fitted black business suit with a white shirt and black tie.</textarea>
+
+          <div class="field-row">
+            <div>
+              <label for="size">Image size</label>
+              <select id="size" name="size">
+                <option value="512">512 × 512</option>
+                <option value="768">768 × 768</option>
+                <option value="1024" selected>1024 × 1024</option>
+              </select>
+            </div>
+            <div>
+              <label for="seed">Seed</label>
+              <input id="seed" name="seed" type="number" min="0" max="2147483646" value="20260731" required />
+            </div>
+          </div>
+
+          <div class="actions">
+            <button id="submit-button" class="primary" type="submit">Run native edit</button>
+            <button id="cancel-button" class="secondary" type="button" hidden>Stop</button>
+          </div>
+          <p id="form-error" class="form-error" role="alert"></p>
+        </form>
+
+        <section class="results-panel" aria-live="polite">
+          <div class="section-heading">
+            <span>02</span>
+            <div>
+              <h2>Native output</h2>
+              <p id="job-status">Ready for a prompt.</p>
+            </div>
+          </div>
+
+          <div class="image-grid">
+            <figure>
+              <div class="image-stage">
+                <img id="source-image" alt="Generated source" hidden />
+                <div id="source-placeholder" class="placeholder">Source</div>
+              </div>
+              <figcaption>
+                <span>Generated</span>
+                <strong id="source-time">—</strong>
+              </figcaption>
+            </figure>
+            <figure>
+              <div class="image-stage edited-stage">
+                <img id="edited-image" alt="Edited result" hidden />
+                <div id="edited-placeholder" class="placeholder">Edited</div>
+              </div>
+              <figcaption>
+                <span>KV edit</span>
+                <strong id="edited-time">—</strong>
+              </figcaption>
+            </figure>
+          </div>
+
+          <details class="log-card">
+            <summary>Runtime log</summary>
+            <pre id="job-log">No job has run yet.</pre>
+          </details>
+        </section>
+      </section>
+    </main>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

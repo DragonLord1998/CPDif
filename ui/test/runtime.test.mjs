@@ -1,0 +1,146 @@
+import assert from "node:assert/strict";
+import { EventEmitter } from "node:events";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { PassThrough } from "node:stream";
+import test from "node:test";
+
+import {
+  JobManager,
+  buildCpdifArgs,
+  jobPaths,
+  normalizeJobInput,
+} from "../lib/runtime.mjs";
+
+async function waitFor(predicate, timeoutMs = 1_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (!predicate()) {
+    if (Date.now() >= deadline) {
+      throw new Error("condition did not become true before timeout");
+    }
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+}
+
+test("normalizes the small validated UI input surface", () => {
+  assert.deepEqual(normalizeJobInput({
+    prompt: "  a cat  ",
+    editPrompt: "  add a suit  ",
+    width: 1024,
+    height: 1024,
+    seed: 42,
+  }), {
+    prompt: "a cat",
+    editPrompt: "add a suit",
+    width: 1024,
+    height: 1024,
+    seed: 42,
+  });
+});
+
+test("rejects invalid dimensions and seeds", () => {
+  assert.throws(
+    () => normalizeJobInput({ prompt: "cat", editPrompt: "suit", width: 640 }),
+    /width and height/,
+  );
+  assert.throws(
+    () => normalizeJobInput({ prompt: "cat", editPrompt: "suit", seed: -1 }),
+    /seed/,
+  );
+});
+
+test("builds the exact Klein KV command without a shell", () => {
+  const config = {
+    transformer: "/models/kv.gguf",
+    textEncoder: "/models/qwen.safetensors",
+    vae: "/models/vae.safetensors",
+    maxVram: "8",
+  };
+  const input = normalizeJobInput({
+    prompt: "cat",
+    editPrompt: "add a suit",
+    width: 1024,
+    height: 1024,
+    seed: 42,
+  });
+  const paths = jobPaths("/outputs", "job-1");
+  const args = buildCpdifArgs(config, input, paths);
+
+  assert.equal(args[0], "generate-edit");
+  assert.ok(args.includes("--klein-kv-cache"));
+  assert.ok(args.includes("--no-offload-to-cpu"));
+  assert.deepEqual(args.slice(args.indexOf("--max-vram"), args.indexOf("--max-vram") + 2), [
+    "--max-vram",
+    "8",
+  ]);
+  assert.equal(args[args.indexOf("--edit-seed") + 1], "43");
+  assert.equal(args[args.indexOf("--edited-output") + 1], "/outputs/job-1/edited.png");
+  assert.equal(args.includes("--cache"), false);
+});
+
+test("forces a stuck cancelled process down and advances the GPU queue", async () => {
+  const outputDir = await mkdtemp(path.join(os.tmpdir(), "cpdif-ui-test-"));
+  const ids = ["first", "second"];
+  const killSignals = [];
+  let spawnCount = 0;
+  const spawnProcess = (_binary, args) => {
+    spawnCount += 1;
+    const child = new EventEmitter();
+    child.stdout = new PassThrough();
+    child.stderr = new PassThrough();
+    child.kill = (signal) => {
+      killSignals.push(signal);
+      if (signal === "SIGKILL") {
+        setImmediate(() => child.emit("close", null, signal));
+      }
+      return true;
+    };
+    if (spawnCount === 2) {
+      const value = (name) => args[args.indexOf(name) + 1];
+      setImmediate(async () => {
+        await Promise.all([
+          writeFile(value("--output"), "png"),
+          writeFile(value("--edited-output"), "png"),
+          writeFile(value("--telemetry"), JSON.stringify({ klein_kv_cache: true })),
+          writeFile(
+            value("--edited-telemetry"),
+            JSON.stringify({ klein_kv_cache: true }),
+          ),
+        ]);
+        child.emit("close", 0, null);
+      });
+    }
+    return child;
+  };
+  const manager = new JobManager(
+    {
+      binary: "/fake/cpdif",
+      transformer: "/fake/kv.gguf",
+      textEncoder: "/fake/qwen.safetensors",
+      vae: "/fake/vae.safetensors",
+      maxVram: "",
+      outputDir,
+    },
+    {
+      spawnProcess,
+      idFactory: () => ids.shift(),
+      killGraceMs: 10,
+    },
+  );
+  const input = { prompt: "cat", editPrompt: "add a suit", seed: 42 };
+
+  try {
+    const first = manager.create(input);
+    const second = manager.create(input);
+    await waitFor(() => manager.get(first.id).status === "running");
+    manager.cancel(first.id);
+    await waitFor(() => manager.get(second.id).status === "completed");
+
+    assert.equal(manager.get(first.id).status, "cancelled");
+    assert.deepEqual(killSignals, ["SIGTERM", "SIGKILL"]);
+  } finally {
+    manager.shutdown();
+    await rm(outputDir, { recursive: true, force: true });
+  }
+});
