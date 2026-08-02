@@ -251,7 +251,7 @@ diff --git a/src/model/diffusion/flux.hpp b/src/model/diffusion/flux.hpp
 index 375576c..348d578 100644
 --- a/src/model/diffusion/flux.hpp
 +++ b/src/model/diffusion/flux.hpp
-@@ -427,6 +427,225 @@ namespace Flux {
+@@ -427,6 +427,223 @@ namespace Flux {
          return x;
      }
  
@@ -422,25 +422,23 @@ index 375576c..348d578 100644
 +        const int64_t current_image_start       = text_tokens + current_reference_tokens;
 +        const int64_t image_tokens              = q->ne[1] - current_image_start;
 +
-+        auto q_text  = token_view_3d(ctx->ggml_ctx, q, 0, text_tokens);
-+        auto q_image = token_view_3d(ctx->ggml_ctx, q, current_image_start, image_tokens);
-+        auto q_main  = ggml_concat(ctx->ggml_ctx, q_text, q_image, 1);
++        ggml_tensor* q_main = q;
++        if (extract) {
++            auto q_text  = token_view_3d(ctx->ggml_ctx, q, 0, text_tokens);
++            auto q_image = token_view_3d(ctx->ggml_ctx, q, current_image_start, image_tokens);
++            q_main       = ggml_concat(ctx->ggml_ctx, q_text, q_image, 1);
++        }
 +
 +        ggml_tensor* k_all = k;
 +        ggml_tensor* v_all = v;
 +        if (!extract) {
-+            auto k_text  = token_view_3d(ctx->ggml_ctx, k, 0, text_tokens);
-+            auto k_image = token_view_3d(ctx->ggml_ctx, k, text_tokens, image_tokens);
-+            auto v_text  = token_view_4d(ctx->ggml_ctx, v, 0, text_tokens);
-+            auto v_image = token_view_4d(ctx->ggml_ctx, v, text_tokens, image_tokens);
-+            k_all        = ggml_concat(ctx->ggml_ctx,
-+                                ggml_concat(ctx->ggml_ctx, k_text, reference_k, 1),
-+                                k_image,
-+                                1);
-+            v_all        = ggml_concat(ctx->ggml_ctx,
-+                                ggml_concat(ctx->ggml_ctx, v_text, reference_v, 2),
-+                                v_image,
-+                                2);
++            // Cached attention is unmasked and reference RoPE has already been
++            // applied, so paired reference K/V entries may be appended after
++            // the current text+image entries. This preserves the mathematical
++            // attention result while replacing two nested device copies with
++            // one contiguous copy per tensor.
++            k_all        = ggml_concat(ctx->ggml_ctx, k, reference_k, 1);
++            v_all        = ggml_concat(ctx->ggml_ctx, v, reference_v, 2);
 +        }
 +
 +        auto main_attention = ggml_ext_attention_ext(ctx->ggml_ctx,

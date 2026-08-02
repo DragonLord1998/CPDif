@@ -53,6 +53,23 @@ class RepositoryContractTests(unittest.TestCase):
         self.assertIn("clear_persistent_cache_tensors", patch_text)
         self.assertIn("ggml_set_output(reference_k)", patch_text)
         self.assertIn("ggml_set_output(reference_v)", patch_text)
+        self.assertIn("ggml_tensor* q_main = q;", patch_text)
+        self.assertIn(
+            "k_all        = ggml_concat(ctx->ggml_ctx, k, reference_k, 1);",
+            patch_text,
+        )
+        self.assertIn(
+            "v_all        = ggml_concat(ctx->ggml_ctx, v, reference_v, 2);",
+            patch_text,
+        )
+        self.assertNotIn(
+            "auto k_text  = token_view_3d(ctx->ggml_ctx, k, 0, text_tokens);",
+            patch_text,
+        )
+        self.assertNotIn(
+            "auto v_text  = token_view_4d(ctx->ggml_ctx, v, 0, text_tokens);",
+            patch_text,
+        )
         self.assertNotIn('mark_graph_cut(reference_k, cache_group, "klein_kv_k")', patch_text)
         self.assertNotIn('mark_graph_cut(reference_v, cache_group, "klein_kv_v")', patch_text)
         self.assertNotIn("ggml_n_dims(img_mod1.shift)", patch_text)
