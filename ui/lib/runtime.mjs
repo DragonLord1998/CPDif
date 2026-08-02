@@ -10,6 +10,7 @@ const MAX_LOG_LENGTH = 1_000_000;
 const MAX_STAGES = 8;
 const DEFAULT_KILL_GRACE_MS = 5_000;
 const STAGE_ID = /^[a-z][a-z0-9-]{0,31}$/;
+const IMAGE_ID = /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/;
 
 function firstExisting(paths) {
   return paths.find((candidate) => existsSync(candidate)) ?? paths[0];
@@ -49,6 +50,10 @@ export function resolveRuntimeConfig({ env = process.env, uiRoot } = {}) {
     env.CPDIF_UI_MAX_LORA_BYTES ?? String(4 * 1024 * 1024 * 1024),
     10,
   );
+  const maxImageBytes = Number.parseInt(
+    env.CPDIF_UI_MAX_IMAGE_BYTES ?? String(32 * 1024 * 1024),
+    10,
+  );
 
   return Object.freeze({
     host: env.CPDIF_UI_HOST ?? "127.0.0.1",
@@ -66,7 +71,14 @@ export function resolveRuntimeConfig({ env = process.env, uiRoot } = {}) {
     outputDir: path.resolve(
       env.CPDIF_UI_DATA_DIR ?? path.join(uiRoot, "data", "jobs"),
     ),
+    imageDir: path.resolve(
+      env.CPDIF_UI_IMAGE_DIR ?? path.join(uiRoot, "data", "images"),
+    ),
     loraDir: path.resolve(env.CPDIF_LORA_DIR ?? path.join(workDir, "loras")),
+    maxImageBytes:
+      Number.isSafeInteger(maxImageBytes) && maxImageBytes > 0
+        ? maxImageBytes
+        : 32 * 1024 * 1024,
     maxLoraBytes:
       Number.isSafeInteger(maxLoraBytes) && maxLoraBytes > 0
         ? maxLoraBytes
@@ -148,8 +160,15 @@ function normalizeStage(stage, index, payload, knownIds) {
     );
   }
   const inputStageId = stage.inputStageId == null ? null : String(stage.inputStageId);
+  const inputImageId = stage.inputImageId == null ? null : String(stage.inputImageId);
+  if (inputStageId !== null && inputImageId !== null) {
+    throw new TypeError(`stage ${id} must have at most one image input`);
+  }
   if (inputStageId !== null && !knownIds.has(inputStageId)) {
     throw new TypeError(`stage ${id} image input must reference an earlier stage`);
+  }
+  if (inputImageId !== null && !IMAGE_ID.test(inputImageId)) {
+    throw new TypeError(`stage ${id} uploaded image id is invalid`);
   }
   const width = Number(stage.width ?? payload.width ?? 1024);
   const height = Number(stage.height ?? payload.height ?? 1024);
@@ -164,7 +183,8 @@ function normalizeStage(stage, index, payload, knownIds) {
   return Object.freeze({
     id,
     inputStageId,
-    mode: inputStageId === null ? "generate" : "edit",
+    inputImageId,
+    mode: inputStageId === null && inputImageId === null ? "generate" : "edit",
     prompt: readPrompt(stage, "prompt", `stage ${id} prompt`),
     width,
     height,
@@ -183,6 +203,7 @@ export function normalizeWorkflowInput(payload) {
         Object.freeze({
           id: "source",
           inputStageId: null,
+          inputImageId: null,
           mode: "generate",
           prompt: legacy.prompt,
           width: legacy.width,
@@ -192,6 +213,7 @@ export function normalizeWorkflowInput(payload) {
         Object.freeze({
           id: "edited",
           inputStageId: "source",
+          inputImageId: null,
           mode: "edit",
           prompt: legacy.editPrompt,
           width: legacy.width,
@@ -282,13 +304,15 @@ function commonCpdifArgs(config, stage, { kleinKvCache }) {
 function canFuseStages(source, edited) {
   return (
     source.inputStageId === null &&
+    source.inputImageId === null &&
     edited?.inputStageId === source.id &&
+    edited?.inputImageId === null &&
     source.width === edited.width &&
     source.height === edited.height
   );
 }
 
-export function buildWorkflowCommands(config, input, paths) {
+export function buildWorkflowCommands(config, input, paths, sourceImages = new Map()) {
   const commands = [];
   for (let index = 0; index < input.stages.length; index += 1) {
     const stage = input.stages[index];
@@ -320,7 +344,7 @@ export function buildWorkflowCommands(config, input, paths) {
       index += 1;
       continue;
     }
-    const edit = stage.inputStageId !== null;
+    const edit = stage.mode === "edit";
     const args = [
       edit ? "edit" : "generate",
       ...commonCpdifArgs(config, stage, { kleinKvCache: edit }),
@@ -334,9 +358,15 @@ export function buildWorkflowCommands(config, input, paths) {
       stagePaths.telemetry,
     ];
     if (edit) {
+      const referenceImage = stage.inputStageId
+        ? paths.stageById.get(stage.inputStageId)?.image
+        : sourceImages.get(stage.inputImageId);
+      if (!referenceImage) {
+        throw new TypeError(`uploaded image for stage ${stage.id} is not available`);
+      }
       args.push(
         "--reference-image",
-        paths.stageById.get(stage.inputStageId).image,
+        referenceImage,
       );
     }
     commands.push(Object.freeze({ stageIds: [stage.id], args }));
@@ -428,6 +458,7 @@ export class JobManager {
       idFactory = randomUUID,
       now = () => new Date(),
       killGraceMs = DEFAULT_KILL_GRACE_MS,
+      resolveImageSource = () => null,
     } = {},
   ) {
     this.config = config;
@@ -435,6 +466,7 @@ export class JobManager {
     this.idFactory = idFactory;
     this.now = now;
     this.killGraceMs = killGraceMs;
+    this.resolveImageSource = resolveImageSource;
     this.jobs = new Map();
     this.queue = [];
     this.draining = false;
@@ -442,10 +474,21 @@ export class JobManager {
 
   create(payload) {
     const input = normalizeWorkflowInput(payload);
+    const sourceImages = new Map();
+    for (const stage of input.stages) {
+      if (stage.inputImageId) {
+        const imagePath = this.resolveImageSource(stage.inputImageId);
+        if (!imagePath) {
+          throw new TypeError(`uploaded image for stage ${stage.id} is not available`);
+        }
+        sourceImages.set(stage.inputImageId, imagePath);
+      }
+    }
     const id = this.idFactory();
     const job = {
       id,
       input,
+      sourceImages,
       paths: workflowPaths(this.config.outputDir, id, input),
       status: "queued",
       createdAt: this.now().toISOString(),
@@ -544,7 +587,12 @@ export class JobManager {
     job.status = "running";
     job.startedAt = this.now().toISOString();
     try {
-      for (const command of buildWorkflowCommands(this.config, job.input, job.paths)) {
+      for (const command of buildWorkflowCommands(
+        this.config,
+        job.input,
+        job.paths,
+        job.sourceImages,
+      )) {
         if (!(await this.#runCommand(job, command))) {
           return;
         }

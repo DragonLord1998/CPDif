@@ -294,6 +294,10 @@ summary:focus-visible {
   stroke: #8262dc;
 }
 
+.wire.image-wire {
+  stroke: #65a985;
+}
+
 .node {
   position: absolute;
   z-index: 3;
@@ -654,26 +658,6 @@ textarea:focus {
   font-size: 9px;
 }
 
-.execution-card {
-  position: absolute;
-  top: calc(100% + 15px);
-  left: 50%;
-  width: min(470px, calc(100% + 60px));
-  transform: translateX(-50%);
-  border: 1px solid #d2c3f4;
-  border-radius: 14px;
-  background: #fff;
-  box-shadow: 0 14px 32px rgba(78, 56, 131, 0.13);
-}
-
-.lora-head {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  min-height: 48px;
-  padding: 9px 11px;
-}
-
 .lora-icon {
   display: grid;
   place-items: center;
@@ -685,30 +669,6 @@ textarea:focus {
   color: var(--purple);
   font-size: 13px;
   font-weight: 850;
-}
-
-.lora-head > div {
-  min-width: 0;
-}
-
-.lora-head strong,
-.lora-head small {
-  display: block;
-}
-
-.lora-head strong {
-  font-size: 10px;
-}
-
-.lora-head small {
-  margin-top: 2px;
-  color: #958d9b;
-  font-size: 8px;
-}
-
-.lora-head .execution-count {
-  flex: 0 0 auto;
-  margin-left: auto;
 }
 
 .lora-download-row {
@@ -854,33 +814,6 @@ textarea:focus {
   border-style: dashed;
   color: #a098a6;
   font-size: 8px;
-}
-
-.native-divider {
-  border-top: 1px solid #e9e2f1;
-}
-
-.execution-card::before {
-  position: absolute;
-  top: -16px;
-  left: 50%;
-  width: 2px;
-  height: 15px;
-  background: #9d80eb;
-  content: "";
-}
-
-.execution-head {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  min-height: 39px;
-  padding: 9px 11px;
-  border-bottom: 1px solid #eee8f6;
-}
-
-.execution-head strong {
-  font-size: 10px;
 }
 
 .execution-count {
@@ -1273,6 +1206,11 @@ dialog::backdrop {
   pointer-events: auto;
 }
 
+.add-node-button.secondary {
+  border-color: #d9d3e0;
+  color: #5f5767;
+}
+
 .assistant-status {
   display: inline-flex;
   align-items: center;
@@ -1320,6 +1258,162 @@ dialog::backdrop {
 .add-node-button:disabled {
   cursor: wait;
   opacity: 0.55;
+}
+
+.image-node {
+  width: 290px;
+  height: 280px;
+  border-color: #c9b9ee;
+}
+
+.image-node-state.ready {
+  color: var(--green);
+}
+
+.image-node-state.uploading {
+  color: var(--purple);
+}
+
+.remove-image-node {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: #a39ba9;
+  font-size: 16px;
+  line-height: 1;
+}
+
+.remove-image-node:hover:not(:disabled) {
+  border-color: #ead4dc;
+  background: #fff7f9;
+  color: var(--danger);
+}
+
+.image-node-body {
+  display: grid;
+  grid-template-rows: minmax(120px, 1fr) auto auto;
+  gap: 8px;
+  padding: 12px;
+}
+
+.image-dropzone {
+  position: relative;
+  display: grid;
+  width: 100%;
+  min-height: 120px;
+  overflow: hidden;
+  place-items: center;
+  padding: 0;
+  border: 1.5px dashed #c8b9ee;
+  border-radius: 12px;
+  background: linear-gradient(145deg, #fefeff, #f5f0ff);
+  color: #655a70;
+}
+
+.image-dropzone:hover:not(:disabled) {
+  border-color: var(--purple);
+  background: var(--purple-soft);
+}
+
+.image-source-preview {
+  width: 100%;
+  height: 100%;
+  min-height: 120px;
+  object-fit: contain;
+  background: #ece8f0;
+}
+
+.image-empty-state {
+  display: grid;
+  gap: 5px;
+  place-items: center;
+  padding: 18px;
+}
+
+.image-empty-state strong {
+  font-size: 10px;
+}
+
+.image-empty-state small,
+.image-source-status,
+.image-source-size {
+  color: #958d9b;
+  font-size: 8px;
+}
+
+.image-source-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.image-source-name {
+  overflow: hidden;
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.image-source-size {
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
+.image-source-status {
+  min-height: 12px;
+  margin: 0;
+}
+
+.image-source-status.error {
+  color: var(--danger);
+}
+
+.lora-node {
+  width: 410px;
+  height: 270px;
+}
+
+.workflow-node {
+  width: 410px;
+  height: 220px;
+}
+
+.lora-node .node-head .execution-count,
+.workflow-node .execution-status {
+  margin-left: auto;
+}
+
+.lora-body {
+  padding: 10px 11px;
+}
+
+.utility-note {
+  margin: 0 0 9px;
+  color: #958d9b;
+  font-size: 8px;
+}
+
+.lora-node .lora-download-row {
+  padding: 0;
+}
+
+.lora-node .lora-status {
+  margin-right: 0;
+  margin-left: 0;
+}
+
+.lora-node .lora-list {
+  padding-right: 0;
+  padding-left: 0;
+}
+
+.workflow-body {
+  padding: 0;
 }
 
 .klein-node {
@@ -1487,7 +1581,7 @@ dialog::backdrop {
 
 #workflow-panel {
   z-index: 5;
-  width: 470px;
+  width: 410px;
   transform: none;
 }
 

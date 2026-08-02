@@ -13,9 +13,12 @@ test("uses automatic Generate/Edit Klein nodes while preserving the native job c
 
   for (const id of [
     "job-form",
+    "add-image-node",
     "add-klein-node",
     "prompt-assistant-status",
     "klein-node-template",
+    "image-node-template",
+    "lora-node",
     "workflow-panel",
     "stage-tabs",
     "output-image",
@@ -31,6 +34,8 @@ test("uses automatic Generate/Edit Klein nodes while preserving the native job c
   }
 
   assert.match(html, /class="node klein-node"/);
+  assert.match(html, /class="node image-node"/);
+  assert.match(html, /class="node utility-node lora-node"/);
   assert.match(html, /class="image-source"/);
   assert.match(html, /No image wire = Generate · Image wire = Edit/);
   assert.match(html, /No image connected · Generate mode/);
@@ -44,7 +49,11 @@ test("uses automatic Generate/Edit Klein nodes while preserving the native job c
   assert.match(script, /fetch\(path, options\)/);
   assert.match(script, /method:\s*"POST"/);
   assert.match(script, /function addStage/);
-  assert.match(script, /stage\.inputStageId = source\.value \|\| null/);
+  assert.match(script, /function addImageSource/);
+  assert.match(script, /inputImageId:/);
+  assert.match(script, /"\/api\/images"/);
+  assert.match(script, /stage\.inputStageId = kind === "stage" \? id : null/);
+  assert.match(script, /stage\.inputImageNodeId = kind === "image" \? id : null/);
   assert.match(script, /inputStageId:\s*stage\.inputStageId/);
   assert.match(script, /body:\s*JSON\.stringify\(workflowPayload\(\)\)/);
   assert.match(script, /\/api\/prompt-assistant\/status/);
@@ -54,6 +63,6 @@ test("uses automatic Generate/Edit Klein nodes while preserving the native job c
   assert.match(html, /Stored only · native inference support is not wired yet/);
   assert.match(script, /api\("\/api\/loras"/);
   assert.match(script, /JSON\.stringify\(\{ name, url \}\)/);
-  assert.doesNotMatch(html, /type="file"/);
+  assert.match(html, /type="file" accept="image\/png,image\/jpeg"/);
   assert.doesNotMatch(html, /type="checkbox"/);
 });

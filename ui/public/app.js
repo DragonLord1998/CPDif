@@ -5,9 +5,12 @@ const canvas = $("#canvas");
 const elements = {
   form: $("#job-form"),
   template: $("#klein-node-template"),
+  imageTemplate: $("#image-node-template"),
   outputNode: $("#output-node"),
   workflowPanel: $("#workflow-panel"),
+  loraNode: $("#lora-node"),
   addNode: $("#add-klein-node"),
+  addImageNode: $("#add-image-node"),
   promptAssistantStatus: $("#prompt-assistant-status"),
   promptAssistantStatusText: $("#prompt-assistant-status .assistant-status-text"),
   error: $("#form-error"),
@@ -40,7 +43,9 @@ const elements = {
 };
 
 const stages = [];
+const imageSources = [];
 let nextStageNumber = 1;
+let nextImageNumber = 1;
 let activeJobId = null;
 let activeStageId = null;
 let selectedStageId = null;
@@ -94,6 +99,24 @@ function stageById(id) {
   return stages.find((stage) => stage.id === id) ?? null;
 }
 
+function imageSourceByNodeId(id) {
+  return imageSources.find((source) => source.id === id) ?? null;
+}
+
+function stageHasInput(stage) {
+  return Boolean(stage.inputStageId || stage.inputImageNodeId);
+}
+
+function stageInputLabel(stage) {
+  if (stage.inputStageId) {
+    return stageById(stage.inputStageId)?.label ?? "upstream Klein";
+  }
+  if (stage.inputImageNodeId) {
+    return imageSourceByNodeId(stage.inputImageNodeId)?.label ?? "uploaded image";
+  }
+  return null;
+}
+
 function selectNode(node) {
   $$(".node").forEach((candidate) => {
     candidate.classList.toggle("selected", candidate === node);
@@ -132,6 +155,11 @@ function updateWires() {
       const source = stageById(stage.inputStageId);
       if (source) {
         addWire(source.node, stage.node);
+      }
+    } else if (stage.inputImageNodeId) {
+      const source = imageSourceByNodeId(stage.inputImageNodeId);
+      if (source?.serverId) {
+        addWire(source.node, stage.node, "wire image-wire");
       }
     }
   }
@@ -215,21 +243,35 @@ function updateZoom() {
 }
 
 function layoutNodes() {
+  const sourceColumnWidth = imageSources.length > 0 ? 340 : 0;
+  imageSources.forEach((source, index) => {
+    source.node.style.left = "50px";
+    source.node.style.top = `${80 + index * 310}px`;
+    source.node.style.width = "290px";
+    source.node.style.height = "280px";
+  });
+  const kleinLeft = 70 + sourceColumnWidth;
   stages.forEach((stage, index) => {
-    stage.node.style.left = `${70 + index * 470}px`;
+    stage.node.style.left = `${kleinLeft + index * 470}px`;
     stage.node.style.top = "80px";
     stage.node.style.width = "410px";
     stage.node.style.height = "440px";
   });
-  const outputLeft = 70 + stages.length * 470;
+  const outputLeft = kleinLeft + stages.length * 470;
   elements.outputNode.style.left = `${outputLeft}px`;
   elements.outputNode.style.top = "70px";
   elements.outputNode.style.width = "400px";
   elements.outputNode.style.height = "520px";
-  elements.workflowPanel.style.left = "70px";
-  elements.workflowPanel.style.top = "550px";
+  elements.loraNode.style.left = `${kleinLeft}px`;
+  elements.loraNode.style.top = "550px";
+  elements.loraNode.style.width = "410px";
+  elements.loraNode.style.height = "270px";
+  elements.workflowPanel.style.left = `${kleinLeft + 470}px`;
+  elements.workflowPanel.style.top = stages.length === 1 ? "610px" : "550px";
+  elements.workflowPanel.style.width = "410px";
+  elements.workflowPanel.style.height = "220px";
   canvas.style.width = `${Math.max(1500, outputLeft + 480)}px`;
-  canvas.style.height = "1150px";
+  canvas.style.height = `${Math.max(1150, 390 + imageSources.length * 310)}px`;
   updateWires();
 }
 
@@ -250,12 +292,20 @@ function anyAssistantBusy() {
   return stages.some((stage) => stage.assistantBusy);
 }
 
+function anyImageBusy() {
+  return imageSources.some((source) => source.uploading);
+}
+
 function updateAssistantControls(stage) {
   stage.improve.disabled =
-    !assistantReady || workflowBusy || stage.assistantBusy || anyAssistantBusy();
+    !assistantReady ||
+    workflowBusy ||
+    stage.assistantBusy ||
+    anyAssistantBusy() ||
+    anyImageBusy();
   stage.improve.classList.toggle("busy", stage.assistantBusy);
   stage.undo.hidden = stage.previousPrompt === null;
-  stage.undo.disabled = workflowBusy || anyAssistantBusy();
+  stage.undo.disabled = workflowBusy || anyAssistantBusy() || anyImageBusy();
 }
 
 function updateAllAssistantControls() {
@@ -293,6 +343,10 @@ async function checkPromptAssistant() {
 }
 
 function completedReference(stage) {
+  if (stage.inputImageNodeId) {
+    const source = imageSourceByNodeId(stage.inputImageNodeId);
+    return source?.serverId ? { sourceId: source.serverId } : null;
+  }
   if (
     !stage.inputStageId ||
     latestJob?.status !== "completed" ||
@@ -304,7 +358,7 @@ function completedReference(stage) {
 }
 
 async function improvePrompt(stage) {
-  if (!assistantReady || workflowBusy || anyAssistantBusy()) {
+  if (!assistantReady || workflowBusy || anyAssistantBusy() || anyImageBusy()) {
     return;
   }
   const original = stage.prompt.value.trim();
@@ -313,7 +367,8 @@ async function improvePrompt(stage) {
     return;
   }
   const inputStageId = stage.inputStageId;
-  const mode = inputStageId ? "edit" : "generate";
+  const inputImageNodeId = stage.inputImageNodeId;
+  const mode = stageHasInput(stage) ? "edit" : "generate";
   const image = completedReference(stage);
   stage.assistantBusy = true;
   stage.node.querySelector(".node-status").textContent = image
@@ -326,7 +381,10 @@ async function improvePrompt(stage) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ mode, prompt: original, ...(image ? { image } : {}) }),
     });
-    if (stage.inputStageId !== inputStageId) {
+    if (
+      stage.inputStageId !== inputStageId ||
+      stage.inputImageNodeId !== inputImageNodeId
+    ) {
       throw new Error("The image connection changed while Qwen was rewriting");
     }
     if (stage.prompt.value.trim() !== original) {
@@ -349,7 +407,12 @@ async function improvePrompt(stage) {
 }
 
 function undoPrompt(stage) {
-  if (stage.previousPrompt === null || workflowBusy || anyAssistantBusy()) {
+  if (
+    stage.previousPrompt === null ||
+    workflowBusy ||
+    anyAssistantBusy() ||
+    anyImageBusy()
+  ) {
     return;
   }
   stage.prompt.value = stage.previousPrompt;
@@ -364,20 +427,38 @@ function refreshConnectionOptions() {
   stages.forEach((stage, index) => {
     const previous = stages.slice(0, index);
     const select = stage.source;
-    const current = stage.inputStageId;
+    const currentStage = stage.inputStageId;
+    const currentImage = stage.inputImageNodeId;
     select.replaceChildren();
     const none = document.createElement("option");
     none.value = "";
     none.textContent = "No image connected";
     select.append(none);
+    for (const source of imageSources.filter(({ serverId }) => serverId)) {
+      const option = document.createElement("option");
+      option.value = `image:${source.id}`;
+      option.textContent = `${source.label} · uploaded`;
+      select.append(option);
+    }
     for (const candidate of previous) {
       const option = document.createElement("option");
-      option.value = candidate.id;
+      option.value = `stage:${candidate.id}`;
       option.textContent = `${candidate.label} output`;
       select.append(option);
     }
-    stage.inputStageId = previous.some(({ id }) => id === current) ? current : null;
-    select.value = stage.inputStageId ?? "";
+    stage.inputStageId = previous.some(({ id }) => id === currentStage)
+      ? currentStage
+      : null;
+    stage.inputImageNodeId = imageSources.some(
+      ({ id, serverId }) => id === currentImage && serverId,
+    )
+      ? currentImage
+      : null;
+    select.value = stage.inputStageId
+      ? `stage:${stage.inputStageId}`
+      : stage.inputImageNodeId
+        ? `image:${stage.inputImageNodeId}`
+        : "";
     updateStageMode(stage);
   });
   updateWorkflowSummary();
@@ -386,7 +467,7 @@ function refreshConnectionOptions() {
 }
 
 function updateStageMode(stage) {
-  const edit = Boolean(stage.inputStageId);
+  const edit = stageHasInput(stage);
   const badge = stage.node.querySelector(".mode-badge");
   badge.textContent = edit ? "Edit" : "Generate";
   badge.classList.toggle("edit", edit);
@@ -395,7 +476,7 @@ function updateStageMode(stage) {
     ? "What should change?"
     : "Describe the image";
   stage.node.querySelector(".mode-hint").textContent = edit
-    ? `Image connected from ${stageById(stage.inputStageId)?.label ?? "upstream"} · Edit mode`
+    ? `Image connected from ${stageInputLabel(stage)} · Edit mode`
     : "No image connected · Generate mode";
   stage.node.querySelector(".run-workflow-text").textContent = edit
     ? "◈ Edit image"
@@ -406,15 +487,15 @@ function updateStageMode(stage) {
 }
 
 function updateWorkflowSummary() {
-  const edits = stages.filter(({ inputStageId }) => inputStageId).length;
+  const edits = stages.filter(stageHasInput).length;
   const generates = stages.length - edits;
   elements.workflowSummary.textContent = `${generates} Generate · ${edits} Edit`;
 }
 
 function addStage({ connectPrevious = true } = {}) {
-  if (workflowBusy || anyAssistantBusy() || stages.length >= 8) {
+  if (workflowBusy || anyAssistantBusy() || anyImageBusy() || stages.length >= 8) {
     toast(
-      workflowBusy || anyAssistantBusy()
+      workflowBusy || anyAssistantBusy() || anyImageBusy()
         ? "Wait for the active workflow"
         : "Maximum 8 Klein nodes",
     );
@@ -447,6 +528,7 @@ function addStage({ connectPrevious = true } = {}) {
     improve,
     undo,
     inputStageId: connectPrevious ? stages.at(-1)?.id ?? null : null,
+    inputImageNodeId: null,
     previousPrompt: null,
     assistantBusy: false,
   };
@@ -455,7 +537,9 @@ function addStage({ connectPrevious = true } = {}) {
   elements.form.append(node);
   attachNode(node);
   source.addEventListener("change", () => {
-    stage.inputStageId = source.value || null;
+    const [kind, id] = source.value.split(":", 2);
+    stage.inputStageId = kind === "stage" ? id : null;
+    stage.inputImageNodeId = kind === "image" ? id : null;
     updateStageMode(stage);
     updateWorkflowSummary();
     renderStageTabs();
@@ -479,8 +563,174 @@ function addStage({ connectPrevious = true } = {}) {
   setBusy(workflowBusy);
 }
 
+function updateImageSourceNode(source, image = null) {
+  const preview = source.node.querySelector(".image-source-preview");
+  const empty = source.node.querySelector(".image-empty-state");
+  const state = source.node.querySelector(".image-node-state");
+  const name = source.node.querySelector(".image-source-name");
+  const size = source.node.querySelector(".image-source-size");
+  const status = source.node.querySelector(".image-source-status");
+  state.classList.toggle("uploading", source.uploading);
+  state.classList.toggle("ready", Boolean(source.serverId) && !source.uploading);
+  if (source.uploading) {
+    state.textContent = "Uploading";
+    status.textContent = "Uploading the reference image to this runtime…";
+    status.classList.remove("error");
+    return;
+  }
+  if (image) {
+    preview.src = `${image.url}?v=${encodeURIComponent(image.id)}`;
+    preview.hidden = false;
+    empty.hidden = true;
+    state.textContent = "Ready";
+    name.textContent = image.filename;
+    size.textContent = `${image.width} × ${image.height} · ${formatBytes(image.sizeBytes)}`;
+    status.textContent = "Ready to connect to a Klein image input.";
+    status.classList.remove("error");
+    return;
+  }
+  state.textContent = "Empty";
+  preview.hidden = true;
+  preview.removeAttribute("src");
+  empty.hidden = false;
+  name.textContent = "No image selected";
+  size.textContent = "Ready to upload";
+  status.textContent = "Upload an image, then connect it to a Klein node.";
+}
+
+async function uploadImageSource(source, file) {
+  if (workflowBusy || anyAssistantBusy() || anyImageBusy()) {
+    toast("Wait for the active workflow");
+    return;
+  }
+  if (!file || !["image/png", "image/jpeg"].includes(file.type)) {
+    const status = source.node.querySelector(".image-source-status");
+    status.textContent = "Choose a PNG or JPEG image.";
+    status.classList.add("error");
+    return;
+  }
+  if (file.size > 32 * 1024 * 1024) {
+    const status = source.node.querySelector(".image-source-status");
+    status.textContent = "Reference images must be 32 MB or smaller.";
+    status.classList.add("error");
+    return;
+  }
+  const previousServerId = source.serverId;
+  source.uploading = true;
+  updateImageSourceNode(source);
+  setBusy(workflowBusy);
+  try {
+    const payload = await api("/api/images", {
+      method: "POST",
+      headers: {
+        "Content-Type": file.type,
+        "X-CPDif-Filename": encodeURIComponent(file.name),
+      },
+      body: file,
+    });
+    source.serverId = payload.image.id;
+    source.image = payload.image;
+    source.uploading = false;
+    updateImageSourceNode(source, payload.image);
+    const target = stageById(source.connectStageId);
+    if (target && !stageHasInput(target)) {
+      target.inputImageNodeId = source.id;
+    }
+    refreshConnectionOptions();
+    if (previousServerId && previousServerId !== source.serverId) {
+      void fetch(`/api/images/${previousServerId}`, { method: "DELETE" });
+    }
+    toast(
+      target && target.inputImageNodeId === source.id
+        ? `Image connected to ${target.label}`
+        : "Reference image ready",
+    );
+  } catch (error) {
+    source.uploading = false;
+    updateImageSourceNode(source, source.image);
+    const status = source.node.querySelector(".image-source-status");
+    status.textContent = error.message;
+    status.classList.add("error");
+  } finally {
+    source.fileInput.value = "";
+    setBusy(workflowBusy);
+  }
+}
+
+function addImageSource() {
+  if (workflowBusy || anyAssistantBusy() || anyImageBusy() || imageSources.length >= 4) {
+    toast(
+      imageSources.length >= 4 ? "Maximum 4 image nodes" : "Wait for the active workflow",
+    );
+    return;
+  }
+  const id = `image-${nextImageNumber}`;
+  const label = `Image ${nextImageNumber}`;
+  const node = elements.imageTemplate.content.firstElementChild.cloneNode(true);
+  node.id = id;
+  node.dataset.imageSourceId = id;
+  node.querySelector(".image-node-title").textContent = label;
+  const fileInput = node.querySelector(".image-file-input");
+  const selectedStage = stageById(selectedStageId);
+  const source = {
+    id,
+    label,
+    node,
+    fileInput,
+    serverId: null,
+    image: null,
+    uploading: false,
+    connectStageId:
+      selectedStage && !stageHasInput(selectedStage) ? selectedStage.id : null,
+  };
+  imageSources.push(source);
+  nextImageNumber += 1;
+  canvas.append(node);
+  attachNode(node);
+  node.querySelector(".choose-image").addEventListener("click", () => fileInput.click());
+  fileInput.addEventListener("change", () => {
+    const [file] = fileInput.files;
+    if (file) {
+      void uploadImageSource(source, file);
+    }
+  });
+  node.querySelector(".remove-image-node").addEventListener("click", () => {
+    removeImageSource(source.id);
+  });
+  updateImageSourceNode(source);
+  refreshConnectionOptions();
+  layoutNodes();
+  selectNode(node);
+  setBusy(workflowBusy);
+}
+
+function removeImageSource(id) {
+  if (workflowBusy || anyAssistantBusy() || anyImageBusy()) {
+    toast("Wait for the active workflow");
+    return;
+  }
+  const index = imageSources.findIndex((source) => source.id === id);
+  if (index < 0) {
+    return;
+  }
+  const [source] = imageSources.splice(index, 1);
+  for (const stage of stages) {
+    if (stage.inputImageNodeId === id) {
+      stage.inputImageNodeId = null;
+    }
+  }
+  source.node.remove();
+  if (source.serverId) {
+    void fetch(`/api/images/${source.serverId}`, { method: "DELETE" });
+  }
+  refreshConnectionOptions();
+  layoutNodes();
+  setBusy(workflowBusy);
+  toast("Image node removed");
+}
+
 function removeStage(id) {
-  if (workflowBusy || anyAssistantBusy()) {
+  if (workflowBusy || anyAssistantBusy() || anyImageBusy()) {
     toast("Wait for the active workflow");
     return;
   }
@@ -516,6 +766,9 @@ function workflowPayload() {
     stages: stages.map((stage) => ({
       id: stage.id,
       inputStageId: stage.inputStageId,
+      inputImageId: stage.inputImageNodeId
+        ? imageSourceByNodeId(stage.inputImageNodeId)?.serverId ?? null
+        : null,
       prompt: stage.prompt.value,
       width: Number(stage.size.value),
       height: Number(stage.size.value),
@@ -527,14 +780,21 @@ function workflowPayload() {
 function setBusy(busy) {
   workflowBusy = busy;
   const promptBusy = anyAssistantBusy();
+  const imageBusy = anyImageBusy();
   for (const stage of stages) {
     const run = stage.node.querySelector(".run-workflow");
     const cancel = stage.node.querySelector(".cancel-workflow");
-    run.disabled = busy || promptBusy || !runtimeReady;
+    run.disabled = busy || promptBusy || imageBusy || !runtimeReady;
     run.classList.toggle("generating", busy);
     cancel.hidden = !busy;
   }
-  elements.addNode.disabled = busy || promptBusy || stages.length >= 8;
+  for (const source of imageSources) {
+    source.node.querySelector(".choose-image").disabled = busy || promptBusy || imageBusy;
+    source.node.querySelector(".remove-image-node").disabled = busy || promptBusy || imageBusy;
+  }
+  elements.addNode.disabled = busy || promptBusy || imageBusy || stages.length >= 8;
+  elements.addImageNode.disabled =
+    busy || promptBusy || imageBusy || imageSources.length >= 4;
   elements.loading.hidden = !busy;
   window.clearInterval(loadingTimer);
   if (busy) {
@@ -558,7 +818,7 @@ function renderStageTabs(job = latestJob) {
   elements.stageTabs.replaceChildren();
   for (const stage of stages) {
     const button = document.createElement("button");
-    const mode = stage.inputStageId ? "Edit" : "Generate";
+    const mode = stageHasInput(stage) ? "Edit" : "Generate";
     button.type = "button";
     button.role = "tab";
     button.dataset.stageId = stage.id;
@@ -583,7 +843,7 @@ function setActiveStage(id, job = latestJob) {
     button.classList.toggle("active", active);
     button.setAttribute("aria-selected", String(active));
   }
-  elements.activeMode.textContent = stage.inputStageId ? "Edit" : "Generate";
+  elements.activeMode.textContent = stageHasInput(stage) ? "Edit" : "Generate";
   elements.activeStage.textContent = stage.label;
   elements.outputSize.textContent = `${stage.size.value} × ${stage.size.value}`;
   const timing = job?.telemetry?.[id]?.generation_ms;
@@ -592,7 +852,7 @@ function setActiveStage(id, job = latestJob) {
   if (imageUrl) {
     const version = encodeURIComponent(job.completedAt);
     elements.outputImage.src = `${imageUrl}?v=${version}`;
-    elements.outputImage.alt = `${stage.label} ${stage.inputStageId ? "edited" : "generated"} output`;
+    elements.outputImage.alt = `${stage.label} ${stageHasInput(stage) ? "edited" : "generated"} output`;
     elements.outputImage.hidden = false;
     elements.outputPlaceholder.hidden = true;
   } else {
@@ -637,10 +897,10 @@ function renderJob(job) {
     const status = stage.node.querySelector(".node-status");
     status.classList.toggle("active", active.has(stage.id));
     status.textContent = active.has(stage.id)
-      ? `Running ${stage.inputStageId ? "Edit" : "Generate"} on CUDA…`
+      ? `Running ${stageHasInput(stage) ? "Edit" : "Generate"} on CUDA…`
       : job.status === "completed"
         ? "Output ready"
-        : stage.inputStageId
+        : stageHasInput(stage)
           ? "Waiting for connected image"
           : "Ready to generate from text";
   }
@@ -805,6 +1065,7 @@ async function cancelWorkflow() {
 }
 
 elements.addNode.addEventListener("click", () => addStage());
+elements.addImageNode.addEventListener("click", addImageSource);
 elements.loraDownload.addEventListener("click", downloadLora);
 for (const input of [elements.loraName, elements.loraUrl]) {
   input.addEventListener("keydown", (event) => {
@@ -868,6 +1129,8 @@ $("#zoom-value").addEventListener("click", () => {
 $("#reset-layout").addEventListener("click", resetLayout);
 
 attachNode(elements.outputNode);
+attachNode(elements.loraNode);
+attachNode(elements.workflowPanel);
 window.addEventListener("resize", updateWires);
 if (window.ResizeObserver) {
   new ResizeObserver(updateWires).observe(canvas);

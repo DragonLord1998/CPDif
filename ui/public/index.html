@@ -8,7 +8,7 @@
       content="A visual node canvas for CPDif FLUX.2 Klein 9B-KV image generation and editing."
     />
     <title>Klein Studio · CPDif</title>
-    <link rel="stylesheet" href="/styles.css?v=20260802.8" />
+    <link rel="stylesheet" href="/styles.css?v=20260802.10" />
   </head>
   <body>
     <header class="app-header">
@@ -44,6 +44,9 @@
           <span class="assistant-dot" aria-hidden="true"></span>
           <span class="assistant-status-text">Qwen checking…</span>
         </span>
+        <button id="add-image-node" class="add-node-button secondary" type="button">
+          ＋ Image node
+        </button>
         <button id="add-klein-node" class="add-node-button" type="button">
           ＋ Klein node
         </button>
@@ -59,49 +62,55 @@
 
         <form id="job-form" class="canvas-form"></form>
 
-        <section class="execution-card" id="workflow-panel">
-          <div class="lora-head">
+        <section class="node utility-node lora-node" id="lora-node" data-min-w="350" data-min-h="230">
+          <div class="node-head">
             <span class="lora-icon" aria-hidden="true">↓</span>
-            <div>
-              <strong>LoRA downloads</strong>
-              <small>Stored only · native inference support is not wired yet</small>
-            </div>
+            <span>LoRA downloads</span>
             <span id="lora-count" class="execution-count">0 assets</span>
           </div>
-          <div class="lora-download-row">
-            <label for="lora-name">
-              <span>Name</span>
-              <input id="lora-name" type="text" maxlength="80" autocomplete="off" placeholder="My style" />
-            </label>
-            <label for="lora-url">
-              <span>HTTPS URL</span>
-              <input id="lora-url" type="url" autocomplete="off" spellcheck="false" placeholder="https://…/model.safetensors" />
-            </label>
-            <button id="download-lora" type="button">
-              <span class="lora-button-spinner" aria-hidden="true"></span>
-              <span id="download-lora-text">Download</span>
-            </button>
+          <div class="node-body lora-body">
+            <p class="utility-note">Stored only · native inference support is not wired yet</p>
+            <div class="lora-download-row">
+              <label for="lora-name">
+                <span>Name</span>
+                <input id="lora-name" type="text" maxlength="80" autocomplete="off" placeholder="My style" />
+              </label>
+              <label for="lora-url">
+                <span>HTTPS URL</span>
+                <input id="lora-url" type="url" autocomplete="off" spellcheck="false" placeholder="https://…/model.safetensors" />
+              </label>
+              <button id="download-lora" type="button">
+                <span class="lora-button-spinner" aria-hidden="true"></span>
+                <span id="download-lora-text">Download</span>
+              </button>
+            </div>
+            <p id="lora-status" class="lora-status" role="status">Add a safetensors URL and a local name.</p>
+            <ul id="lora-list" class="lora-list" aria-label="Downloaded LoRAs"></ul>
           </div>
-          <p id="lora-status" class="lora-status" role="status">Add a safetensors URL and a local name.</p>
-          <ul id="lora-list" class="lora-list" aria-label="Downloaded LoRAs"></ul>
+          <span class="resize-handle" aria-label="Resize LoRA node"></span>
+        </section>
 
-          <div class="native-divider"></div>
-          <div class="execution-head">
-            <strong>Native workflow</strong>
+        <section class="node workflow-node" id="workflow-panel" data-min-w="350" data-min-h="190">
+          <div class="node-head">
+            <span class="node-icon" aria-hidden="true">⌁</span>
+            <span>Native workflow</span>
             <span id="workflow-summary" class="execution-count">1 Generate</span>
             <span id="job-status" class="execution-status">Ready for a prompt</span>
           </div>
-          <div class="execution-chips" aria-label="Active runtime features">
-            <span>Auto mode</span>
-            <span>KV edit cache</span>
-            <span>CUDA</span>
-            <span>Q8</span>
+          <div class="node-body workflow-body">
+            <div class="execution-chips" aria-label="Active runtime features">
+              <span>Auto mode</span>
+              <span>KV edit cache</span>
+              <span>CUDA</span>
+              <span>Q8</span>
+            </div>
+            <p id="form-error" class="form-error" role="alert"></p>
+            <details class="log-card">
+              <summary>Runtime log</summary>
+              <pre id="job-log">No job has run yet.</pre>
+            </details>
           </div>
-          <p id="form-error" class="form-error" role="alert"></p>
-          <details class="log-card">
-            <summary>Runtime log</summary>
-            <pre id="job-log">No job has run yet.</pre>
-          </details>
+          <span class="resize-handle" aria-label="Resize workflow node"></span>
         </section>
 
         <section class="node" id="output-node" data-min-w="340" data-min-h="400">
@@ -151,6 +160,35 @@
         </section>
       </div>
     </main>
+
+    <template id="image-node-template">
+      <section class="node image-node" data-min-w="260" data-min-h="250">
+        <span class="port port-out"></span>
+        <span class="port-label out">Image</span>
+        <div class="node-head">
+          <span class="node-icon" aria-hidden="true">▧</span>
+          <span class="image-node-title">Image source</span>
+          <span class="node-type image-node-state">Empty</span>
+          <button class="remove-image-node" type="button" title="Remove image node" aria-label="Remove image node">×</button>
+        </div>
+        <div class="node-body image-node-body">
+          <button class="image-dropzone choose-image" type="button">
+            <img class="image-source-preview" alt="Uploaded reference" hidden />
+            <span class="image-empty-state">
+              <strong>Choose a reference image</strong>
+              <small>PNG or JPEG · up to 32 MB</small>
+            </span>
+          </button>
+          <input class="image-file-input" type="file" accept="image/png,image/jpeg" hidden />
+          <div class="image-source-meta">
+            <strong class="image-source-name">No image selected</strong>
+            <span class="image-source-size">Ready to upload</span>
+          </div>
+          <p class="image-source-status" role="status">Upload an image, then connect it to a Klein node.</p>
+        </div>
+        <span class="resize-handle" aria-label="Resize image node"></span>
+      </section>
+    </template>
 
     <template id="klein-node-template">
       <section class="node klein-node" data-min-w="350" data-min-h="420">
@@ -222,6 +260,6 @@
     </dialog>
     <div class="toast" id="toast" role="status">Done</div>
 
-    <script type="module" src="/app.js?v=20260802.9"></script>
+    <script type="module" src="/app.js?v=20260802.10"></script>
   </body>
 </html>
