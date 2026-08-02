@@ -51,6 +51,10 @@ class ColabUiNotebookTests(unittest.TestCase):
         self.assertIn('architecture not in {"80", "120"}', source)
         self.assertIn("10_restore_release_cache.sh", source)
         self.assertIn("02_build_cuda.sh", source)
+        self.assertIn('"--unshallow", "--filter=blob:none"', source)
+        self.assertNotIn('"--depth", "1"', source)
+        self.assertIn("Release cache restore failed; continuing with a source build", source)
+        self.assertIn("check=False", source)
         self.assertIn("download_kv_q8_transformer.sh", source)
         self.assertIn('aux_model_env["MODEL_COMPONENTS"] = "text_encoder,vae"', source)
 
