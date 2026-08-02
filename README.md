@@ -39,6 +39,23 @@ backend pieces incrementally without changing the CLI contract.
 
 ## Colab GPU build and validation
 
+For the browser UI, open the
+[public two-cell Colab launcher](https://colab.research.google.com/gist/DragonLord1998/24227eeab85ac10c3df4dc3991c81850/cpdif_klein_9b_ui_colab.ipynb)
+or view its [public Gist source](https://gist.github.com/DragonLord1998/24227eeab85ac10c3df4dc3991c81850).
+The repository copy can be regenerated deterministically with:
+
+```bash
+python3 scripts/colab/create_ui_notebook.py
+```
+
+The generated notebook is
+[`notebooks/CPDif_Klein_9B_UI_Colab.ipynb`](notebooks/CPDif_Klein_9B_UI_Colab.ipynb).
+Cell 1 reserves the private, session-bound Colab proxy URL. Cell 2 restores the
+published `sm80` or `sm120` build cache, verifies the native build and model
+assets, starts the Node UI, and prints plus embeds the ready URL. The launcher
+rejects other GPU architectures because no validated release cache is
+published for them.
+
 On either supported Colab GPU, the complete public Q8 path is:
 
 ```bash
