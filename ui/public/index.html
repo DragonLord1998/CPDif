@@ -3,103 +3,230 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="description" content="A small native UI for CPDif FLUX.2 Klein 9B-KV image editing." />
-    <title>CPDif Studio</title>
-    <link rel="stylesheet" href="/styles.css" />
+    <meta
+      name="description"
+      content="A visual node canvas for CPDif FLUX.2 Klein 9B-KV image generation and editing."
+    />
+    <title>Klein Studio · CPDif</title>
+    <link rel="stylesheet" href="/styles.css?v=20260802.2" />
   </head>
   <body>
-    <main class="shell">
-      <header class="masthead">
-        <div>
-          <p class="eyebrow">CPDif · Native CUDA</p>
-          <h1>Fast image editing,<br /><span>without the framework.</span></h1>
-        </div>
-        <div class="runtime-card">
+    <header class="app-header">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">✦</span>
+        <span>Klein Studio</span>
+        <span class="brand-byline">by CPDif</span>
+      </div>
+
+      <div class="model-pill">
+        <span class="model-glyph" aria-hidden="true">◈</span>
+        <span>FLUX.2 Klein 9B-KV</span>
+        <em>4-step CUDA</em>
+      </div>
+
+      <div class="top-actions">
+        <div class="runtime-pill" title="Native runtime status">
           <span id="runtime-dot" class="runtime-dot"></span>
-          <div>
+          <span>
             <strong id="runtime-label">Checking runtime…</strong>
-            <p id="runtime-detail">FLUX.2 Klein 9B-KV · 4 steps</p>
-          </div>
+            <small id="runtime-detail">Native CUDA · exact KV path</small>
+          </span>
         </div>
-      </header>
+        <button class="icon-btn" id="reset-layout" type="button">Reset layout</button>
+      </div>
+    </header>
 
-      <section class="workspace">
-        <form id="job-form" class="prompt-panel">
-          <div class="section-heading">
-            <span>01</span>
-            <div>
-              <h2>Create and edit</h2>
-              <p>One native context. Exact KV-cache path.</p>
+    <main class="workspace" id="workspace">
+      <div class="canvas-toolbar">
+        <span class="canvas-title">Generation canvas</span>
+        <span class="tip">Drag node headers · Resize from the lower-right corner</span>
+        <div class="zoom" aria-label="Canvas zoom controls">
+          <button id="zoom-out" type="button" aria-label="Zoom out">−</button>
+          <button id="zoom-value" type="button">100%</button>
+          <button id="zoom-in" type="button" aria-label="Zoom in">＋</button>
+        </div>
+      </div>
+
+      <div class="canvas" id="canvas">
+        <svg class="wires" id="wires" aria-hidden="true">
+          <path id="wire-source" class="wire"></path>
+          <path id="wire-output" class="wire output"></path>
+        </svg>
+
+        <form id="job-form" class="canvas-form">
+          <section class="node" id="source-node" data-min-w="280" data-min-h="300">
+            <span class="port port-out"></span>
+            <span class="port-label out">Prompt</span>
+            <div class="node-head">
+              <span class="node-icon" aria-hidden="true">✎</span>
+              <span>Source prompt</span>
+              <span class="node-type">Stage 1</span>
             </div>
-          </div>
-
-          <label for="prompt">Source image prompt</label>
-          <textarea id="prompt" name="prompt" rows="5" required>A realistic orange tabby cat sitting in a softly lit gray studio, full body, centered composition</textarea>
-
-          <label for="edit-prompt">Edit instruction</label>
-          <textarea id="edit-prompt" name="editPrompt" rows="5" required>Keep the same cat, face, pose, fur, lighting, and background. Dress the cat in a fitted black business suit with a white shirt and black tie.</textarea>
-
-          <div class="field-row">
-            <div>
-              <label for="size">Image size</label>
-              <select id="size" name="size">
-                <option value="512">512 × 512</option>
-                <option value="768">768 × 768</option>
-                <option value="1024" selected>1024 × 1024</option>
-              </select>
+            <div class="node-body source-body">
+              <div class="field-label">
+                <span>Describe the source image</span>
+                <span id="prompt-counter">0 / 4000</span>
+              </div>
+              <div class="prompt-wrap">
+                <textarea id="prompt" name="prompt" maxlength="4000" required>A realistic orange tabby cat sitting in a softly lit gray studio, full body, centered composition</textarea>
+              </div>
+              <div class="node-note">
+                <span class="note-icon" aria-hidden="true">◎</span>
+                <div>
+                  <strong>Generated in memory</strong>
+                  <small>The source pixels flow directly into the edit stage.</small>
+                </div>
+              </div>
             </div>
-            <div>
-              <label for="seed">Seed</label>
-              <input id="seed" name="seed" type="number" min="0" max="2147483646" value="20260731" required />
-            </div>
-          </div>
+            <span class="resize-handle" aria-label="Resize source prompt node"></span>
+          </section>
 
-          <div class="actions">
-            <button id="submit-button" class="primary" type="submit">Run native edit</button>
-            <button id="cancel-button" class="secondary" type="button" hidden>Stop</button>
-          </div>
-          <p id="form-error" class="form-error" role="alert"></p>
+          <section class="node selected" id="flux-node" data-min-w="350" data-min-h="430">
+            <span class="port port-in"></span>
+            <span class="port-label in">Source</span>
+            <span class="port port-out"></span>
+            <span class="port-label out">Output</span>
+            <div class="node-head">
+              <span class="node-icon" aria-hidden="true">◈</span>
+              <span>FLUX.2 Klein 9B-KV</span>
+              <span id="flux-state" class="node-type runtime-state">Checking</span>
+            </div>
+            <div class="node-body flux-body">
+              <div class="field-label">
+                <span>Edit instruction</span>
+                <span>⌘ Enter to run</span>
+              </div>
+              <div class="prompt-wrap">
+                <textarea id="edit-prompt" name="editPrompt" maxlength="4000" required>Keep the same cat, face, pose, fur, lighting, and background. Dress the cat in a fitted black business suit with a white shirt and black tie.</textarea>
+                <span id="edit-counter" class="counter">0 / 4000</span>
+              </div>
+
+              <div class="params">
+                <label class="param" for="size">
+                  <span>Size</span>
+                  <select id="size" name="size">
+                    <option value="512">512 px</option>
+                    <option value="768">768 px</option>
+                    <option value="1024" selected>1024 px</option>
+                  </select>
+                </label>
+                <label class="param" for="seed">
+                  <span>Seed</span>
+                  <input
+                    id="seed"
+                    name="seed"
+                    type="number"
+                    min="0"
+                    max="2147483646"
+                    value="20260731"
+                    required
+                  />
+                </label>
+                <div class="param locked-param">
+                  <span>Steps</span>
+                  <strong>4</strong>
+                </div>
+              </div>
+
+              <div class="actions">
+                <button id="submit-button" class="generate" type="submit">
+                  <span class="spinner" aria-hidden="true"></span>
+                  <span id="generate-text">✦ Generate + edit</span>
+                </button>
+                <button id="cancel-button" class="stop-button" type="button" hidden>Stop</button>
+              </div>
+              <p id="form-error" class="form-error" role="alert"></p>
+            </div>
+
+            <section class="execution-card">
+              <div class="execution-head">
+                <strong>Native execution</strong>
+                <span class="execution-count">Exact path</span>
+                <span id="job-status" class="execution-status">Ready for a prompt</span>
+              </div>
+              <div class="execution-chips" aria-label="Active runtime features">
+                <span>KV cache</span>
+                <span>CUDA</span>
+                <span>Q8</span>
+                <span>CFG 1.0</span>
+              </div>
+              <details class="log-card">
+                <summary>Runtime log</summary>
+                <pre id="job-log">No job has run yet.</pre>
+              </details>
+            </section>
+            <span class="resize-handle" aria-label="Resize FLUX node"></span>
+          </section>
         </form>
 
-        <section class="results-panel" aria-live="polite">
-          <div class="section-heading">
-            <span>02</span>
-            <div>
-              <h2>Native output</h2>
-              <p id="job-status">Ready for a prompt.</p>
+        <section class="node" id="output-node" data-min-w="340" data-min-h="400">
+          <span class="port port-in"></span>
+          <span class="port-label in">Images</span>
+          <div class="node-head">
+            <span class="node-icon" aria-hidden="true">▧</span>
+            <span>Native output</span>
+            <div class="output-head-actions">
+              <button id="copy-prompt" type="button" title="Copy edit instruction" aria-label="Copy edit instruction">⧉</button>
+              <button id="download-output" type="button" title="Download active image" aria-label="Download active image">↓</button>
+              <button id="expand-output" type="button" title="Expand active image" aria-label="Expand active image">↗</button>
             </div>
           </div>
+          <div class="output-body">
+            <div class="view-switcher" role="tablist" aria-label="Output image">
+              <button type="button" role="tab" data-view="source">Source</button>
+              <button type="button" role="tab" data-view="edited" class="active" aria-selected="true">Edited</button>
+            </div>
 
-          <div class="image-grid">
-            <figure>
-              <div class="image-stage">
+            <div class="preview-stage">
+              <div class="output-layer" data-output="source" hidden>
                 <img id="source-image" alt="Generated source" hidden />
-                <div id="source-placeholder" class="placeholder">Source</div>
+                <div id="source-placeholder" class="placeholder">
+                  <span class="placeholder-mark">✦</span>
+                  <strong>Source image</strong>
+                  <small>Created from the source prompt</small>
+                </div>
               </div>
-              <figcaption>
-                <span>Generated</span>
-                <strong id="source-time">—</strong>
-              </figcaption>
-            </figure>
-            <figure>
-              <div class="image-stage edited-stage">
+              <div class="output-layer active" data-output="edited">
                 <img id="edited-image" alt="Edited result" hidden />
-                <div id="edited-placeholder" class="placeholder">Edited</div>
+                <div id="edited-placeholder" class="placeholder">
+                  <span class="placeholder-mark">◈</span>
+                  <strong>Edited image</strong>
+                  <small>The KV result appears here</small>
+                </div>
               </div>
-              <figcaption>
-                <span>KV edit</span>
-                <strong id="edited-time">—</strong>
-              </figcaption>
-            </figure>
-          </div>
+              <div id="loading" class="loading" hidden>
+                <div>
+                  <div class="big-spinner"></div>
+                  <strong>Running FLUX.2 Klein 9B-KV</strong>
+                  <small id="loading-text">Preparing the native context…</small>
+                </div>
+              </div>
+            </div>
 
-          <details class="log-card">
-            <summary>Runtime log</summary>
-            <pre id="job-log">No job has run yet.</pre>
-          </details>
+            <div class="output-meta">
+              <span><strong id="output-size">1024 × 1024</strong></span>
+              <span>PNG</span>
+              <span class="time" id="active-time">Ready</span>
+            </div>
+            <div class="timing-row">
+              <span>Source <strong id="source-time">—</strong></span>
+              <span>KV edit <strong id="edited-time">—</strong></span>
+            </div>
+          </div>
+          <span class="resize-handle" aria-label="Resize output node"></span>
         </section>
-      </section>
+      </div>
     </main>
-    <script type="module" src="/app.js"></script>
+
+    <dialog id="image-modal">
+      <div class="modal-bar">
+        <strong id="modal-title">Edited output</strong>
+        <button id="close-modal" type="button" aria-label="Close expanded image">×</button>
+      </div>
+      <div class="modal-image" id="modal-image"></div>
+    </dialog>
+    <div class="toast" id="toast" role="status">Done</div>
+
+    <script type="module" src="/app.js?v=20260802.2"></script>
   </body>
 </html>

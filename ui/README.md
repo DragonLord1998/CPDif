@@ -8,6 +8,18 @@ edited image, timings, and native process log.
 The UI does not proxy model weights to a browser and does not invoke a shell.
 Prompts are passed as individual child-process arguments.
 
+## Browser surface
+
+The frontend uses a light visual node canvas inspired by the supplied design
+reference. Its three real stages are Source Prompt,
+FLUX.2 Klein 9B-KV, and Native Output. Nodes can be dragged and resized, the
+canvas can be zoomed or reset, and the output node switches between the source
+and edited PNG while retaining native telemetry, logs, and cancellation.
+
+The design system is dependency-free and lives in `public/styles.css`: color,
+spacing, typography, radius, shadow, focus, motion, and responsive tokens are
+plain CSS custom properties and component rules.
+
 ## Start on A100 or RTX PRO 6000
 
 After restoring/building CPDif and downloading the three model components:
