@@ -83,8 +83,8 @@ class RepositoryContractTests(unittest.TestCase):
     def test_gpu_release_cache_contract_is_versioned(self):
         restore = REPO_ROOT / "scripts" / "colab" / "10_restore_release_cache.sh"
         restore_text = restore.read_text(encoding="utf-8")
-        self.assertIn("gpu-build-cache-v3", restore_text)
-        self.assertIn("cpdif-gpu-build-cache-v3-sm", restore_text)
+        self.assertIn("gpu-build-cache-v4", restore_text)
+        self.assertIn("cpdif-gpu-build-cache-v4-sm", restore_text)
         self.assertIn("05_restore_cache.sh", restore_text)
 
 

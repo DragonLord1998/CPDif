@@ -94,7 +94,7 @@ manifests remain supported. Manifest schema 3 also pins the SHA-256 of CPDif's
 upstream patch, so a binary built from a different patch cannot be restored.
 
 Published schema-3 caches can be restored directly from the
-`gpu-build-cache-v3` GitHub release after installing dependencies and preparing
+`gpu-build-cache-v4` GitHub release after installing dependencies and preparing
 the pinned upstream source:
 
 ```bash

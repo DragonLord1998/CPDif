@@ -86,16 +86,21 @@ profiles produce distinct outputs across requests, and the KV checkpoint has
 lower steady-state image-edit latency on the identical GPU. It reports the
 combined generate-plus-edit pair separately so serving tradeoffs remain clear.
 
-The final exact-commit measurements are:
+The latest exact-commit measurements include Q/K/V copy elision on cached
+steps. Cached steps reuse the existing query tensor and build each combined K
+and V tensor with one concatenation, avoiding the prior nested device-to-device
+copies while preserving paired attention semantics.
 
 | GPU | KV edit vs standard | KV pair vs standard | Peak VRAM |
 | --- | ---: | ---: | ---: |
-| A100-SXM4-40GB | 9.332 s vs 12.497 s (1.339x) | 15.884 s vs 19.022 s (1.198x) | 33,760 MiB |
-| RTX PRO 6000 Blackwell | 3.780 s vs 5.370 s (1.421x) | 6.172 s vs 7.758 s (1.257x) | 34,547 MiB |
+| A100-SXM4-40GB | 9.262 s vs 12.508 s (1.351x) | 15.800 s vs 19.045 s (1.205x) | 33,760 MiB |
+| RTX PRO 6000 Blackwell | 3.742 s vs 5.386 s (1.439x) | 6.140 s vs 7.780 s (1.267x) | 34,547 MiB |
 
 Representative standard and KV outputs passed manual visual review on both
-GPUs. Full samples, hashes, hardware metadata, and cache checksums are in
-`docs/benchmarks/2026-08-02-klein-kv.json`.
+GPUs. The first validated implementation remains recorded in
+`docs/benchmarks/2026-08-02-klein-kv.json`; copy-elision samples, hashes,
+hardware metadata, previous-result deltas, and cache checksums are in
+`docs/benchmarks/2026-08-02-klein-kv-copy-elision.json`.
 
 ## Licensing
 

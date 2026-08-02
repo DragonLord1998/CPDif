@@ -1,0 +1,140 @@
+{
+  "artifacts": {
+    "kv_transformer_sha256": "94d7a02ac18b50b2c751c6e2ee82c53a338ab233338700330a7797b6c959e397",
+    "standard_transformer_sha256": "67ca777c7aa2d6a0d63d4a7564f823c63af88e9688643df727e1867789062982",
+    "text_encoder_sha256": "f0ff9239d56269ca1d05e5f86da6a79fac111af464955681f11c7ab0ec5ef6c1",
+    "upstream_patch_sha256": "b5de7508828746d5ab9696e63845acfb6ea806b81519814cb6449c478fea9b43",
+    "vae_sha256": "868fe7b343cc8f3a19dbcfcafbc3d5f888802be3f89bd81b65b3621a066ce8f3"
+  },
+  "build_caches": {
+    "sm80": {
+      "asset": "cpdif-gpu-build-cache-v4-sm80.tar.zst",
+      "sha256": "bd6499717b339423cc34ac7722b541ad4363360c814be94ff82ca0512cb8f6a8"
+    },
+    "sm120": {
+      "asset": "cpdif-gpu-build-cache-v4-sm120.tar.zst",
+      "sha256": "d22cb020e6054f7de99698388300f36224a0217752c9615974580407d66cdfe3"
+    }
+  },
+  "gpu_results": {
+    "a100_40gb": {
+      "comparison": {
+        "edit_latency_reduction_percent": 25.95,
+        "edit_speedup": 1.3505,
+        "historical_standard_persistent_pair_ms_median": 18858,
+        "pair_latency_reduction_percent": 17.04,
+        "pair_speedup": 1.2054,
+        "same_gpu": true,
+        "standard_historical_output_exact": true
+      },
+      "gpu": {
+        "compute_capability": "8.0",
+        "driver_version": "580.82.07",
+        "memory_total_mib": 40960,
+        "name": "NVIDIA A100-SXM4-40GB"
+      },
+      "kv": {
+        "output_diversity_valid": true,
+        "peak_vram_mib": 33760,
+        "representative_cat_sha256": "e96e4858c2c26a60a600dd244d39deab32b5efa2b21b24faef88d63a56a387ac",
+        "representative_edit_sha256": "0edbdd5e4750bfc99bf170a5db3fc9f092b1f3466682679a2fec467a73376780",
+        "steady_state_edit_ms_median": 9262,
+        "steady_state_edit_ms_samples": [9251, 9272],
+        "steady_state_pair_ms_median": 15800,
+        "steady_state_pair_ms_samples": [15789, 15811]
+      },
+      "previous_kv": {
+        "project_commit": "5e9838e9170756ea0b432e7e689b35c7c7475189",
+        "steady_state_edit_improvement_ms": 70,
+        "steady_state_edit_improvement_percent": 0.75,
+        "steady_state_edit_ms_median": 9332,
+        "steady_state_pair_improvement_ms": 84,
+        "steady_state_pair_improvement_percent": 0.53,
+        "steady_state_pair_ms_median": 15884
+      },
+      "standard": {
+        "output_diversity_valid": true,
+        "peak_vram_mib": 29664,
+        "representative_cat_sha256": "1dd7c88f885d9cb33b82d2c5ab1b67a8670bb791efb42264177b5c1877fdc2de",
+        "representative_edit_sha256": "5dabd089b754ea26ce814ffca45c36d55d28d8365d4c4350237c5a9f06b6db21",
+        "steady_state_edit_ms_median": 12508,
+        "steady_state_edit_ms_samples": [12497, 12520],
+        "steady_state_pair_ms_median": 19045,
+        "steady_state_pair_ms_samples": [19035, 19055]
+      },
+      "visual_review_status": "pass"
+    },
+    "rtx_pro_6000": {
+      "comparison": {
+        "edit_latency_reduction_percent": 30.52,
+        "edit_speedup": 1.4393,
+        "historical_standard_persistent_pair_ms_median": 7774,
+        "pair_latency_reduction_percent": 21.08,
+        "pair_speedup": 1.2671,
+        "same_gpu": true,
+        "standard_historical_output_exact": true
+      },
+      "gpu": {
+        "compute_capability": "12.0",
+        "driver_version": "580.82.07",
+        "memory_total_mib": 97887,
+        "name": "NVIDIA RTX PRO 6000 Blackwell Server Edition"
+      },
+      "kv": {
+        "output_diversity_valid": true,
+        "peak_vram_mib": 34547,
+        "representative_cat_sha256": "2caa7cd89ca99abf3b14df01dd5c49ecdf47411c33b2440f060c24265778dff0",
+        "representative_edit_sha256": "291191c9a547f575af8262b886f27511ec16bafc235c62066b1b62c88e98d544",
+        "steady_state_edit_ms_median": 3742,
+        "steady_state_edit_ms_samples": [3751, 3733],
+        "steady_state_pair_ms_median": 6140,
+        "steady_state_pair_ms_samples": [6153, 6126]
+      },
+      "previous_kv": {
+        "project_commit": "5e9838e9170756ea0b432e7e689b35c7c7475189",
+        "steady_state_edit_improvement_ms": 38,
+        "steady_state_edit_improvement_percent": 1.01,
+        "steady_state_edit_ms_median": 3780,
+        "steady_state_pair_improvement_ms": 32,
+        "steady_state_pair_improvement_percent": 0.52,
+        "steady_state_pair_ms_median": 6172
+      },
+      "standard": {
+        "output_diversity_valid": true,
+        "peak_vram_mib": 29809,
+        "representative_cat_sha256": "26d665717d75b998414571ec2bac495de18d4a859a954f618df478af6956921f",
+        "representative_edit_sha256": "e7d69ac069f001f0ede16f570f45cf262f0d6fc525725cd6e5cb3ec103a39e53",
+        "steady_state_edit_ms_median": 5386,
+        "steady_state_edit_ms_samples": [5391, 5381],
+        "steady_state_pair_ms_median": 7780,
+        "steady_state_pair_ms_samples": [7784, 7775]
+      },
+      "visual_review_status": "pass"
+    }
+  },
+  "optimization": {
+    "description": "Reuse cached-step queries and replace nested K/V concatenations with one paired concatenation per tensor",
+    "inspired_by": [
+      "SGLang attention device-to-device copy elimination and fused layout operations",
+      "llama.cpp/ggml persistent KV buffers"
+    ],
+    "output_semantics": "Reference K/V remain RoPE-transformed, paired, and appended to unmasked attention; token-order permutation changes GPU hashes but not attention semantics"
+  },
+  "profile": "flux2-klein-9b-kv-q8",
+  "project_commit": "60385d388fea29820ac2c9b7bd0d613d3463195f",
+  "requests_per_profile": 3,
+  "schema_version": 2,
+  "tests": {
+    "a100_ctest": "3/3 passed",
+    "a100_python": "38 passed",
+    "rtx_ctest": "3/3 passed",
+    "rtx_python": "38 passed"
+  },
+  "tests_passed": true,
+  "visual_acceptance": {
+    "a100_cat": "pass",
+    "a100_same_cat_suit_edit": "pass",
+    "rtx_cat": "pass",
+    "rtx_same_cat_suit_edit": "pass"
+  }
+}

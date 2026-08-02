@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
 CPDIF_REPO_DIR="${CPDIF_REPO_DIR:-$(cd -- "${SCRIPT_DIR}/../.." >/dev/null 2>&1 && pwd)}"
 CPDIF_WORKDIR="${CPDIF_WORKDIR:-/content/cpdif-work}"
 CPDIF_RELEASE_REPO="${CPDIF_RELEASE_REPO:-DragonLord1998/CPDif}"
-CPDIF_RELEASE_TAG="${CPDIF_RELEASE_TAG:-gpu-build-cache-v3}"
+CPDIF_RELEASE_TAG="${CPDIF_RELEASE_TAG:-gpu-build-cache-v4}"
 CPDIF_CUDA_ARCHITECTURES="${CPDIF_CUDA_ARCHITECTURES:-}"
 CPDIF_RELEASE_DOWNLOAD_DIR="${CPDIF_RELEASE_DOWNLOAD_DIR:-/content/cpdif-release-cache}"
 
@@ -17,7 +17,7 @@ if [[ ! "${CPDIF_CUDA_ARCHITECTURES}" =~ ^[0-9]+$ ]]; then
   exit 1
 fi
 
-asset_base="cpdif-gpu-build-cache-v3-sm${CPDIF_CUDA_ARCHITECTURES}"
+asset_base="cpdif-gpu-build-cache-v4-sm${CPDIF_CUDA_ARCHITECTURES}"
 archive="${CPDIF_RELEASE_DOWNLOAD_DIR}/${asset_base}.tar.zst"
 checksum_file="${archive}.sha256"
 release_url="https://github.com/${CPDIF_RELEASE_REPO}/releases/download/${CPDIF_RELEASE_TAG}"
