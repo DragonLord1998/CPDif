@@ -9,9 +9,12 @@ import test from "node:test";
 import {
   JobManager,
   buildCpdifArgs,
+  buildWorkflowCommands,
   jobPaths,
   normalizeJobInput,
+  normalizeWorkflowInput,
   resolveRuntimeConfig,
+  workflowPaths,
 } from "../lib/runtime.mjs";
 
 async function waitFor(predicate, timeoutMs = 1_000) {
@@ -48,6 +51,90 @@ test("rejects invalid dimensions and seeds", () => {
   assert.throws(
     () => normalizeJobInput({ prompt: "cat", editPrompt: "suit", seed: -1 }),
     /seed/,
+  );
+});
+
+test("infers Generate or Edit from each stage image connection", () => {
+  assert.deepEqual(
+    normalizeWorkflowInput({
+      stages: [
+        { id: "klein-1", prompt: "a cat", seed: 10 },
+        {
+          id: "klein-2",
+          inputStageId: "klein-1",
+          prompt: "dress it in a suit",
+          seed: 11,
+        },
+        { id: "klein-3", prompt: "a mountain", seed: 12 },
+      ],
+    }).stages.map(({ id, inputStageId, mode }) => ({ id, inputStageId, mode })),
+    [
+      { id: "klein-1", inputStageId: null, mode: "generate" },
+      { id: "klein-2", inputStageId: "klein-1", mode: "edit" },
+      { id: "klein-3", inputStageId: null, mode: "generate" },
+    ],
+  );
+  assert.throws(
+    () =>
+      normalizeWorkflowInput({
+        stages: [
+          { id: "klein-1", inputStageId: "future", prompt: "invalid" },
+        ],
+      }),
+    /earlier stage/,
+  );
+});
+
+test("builds generate-only and fused connected workflow commands", () => {
+  const config = {
+    transformer: "/models/kv.gguf",
+    textEncoder: "/models/qwen.safetensors",
+    vae: "/models/vae.safetensors",
+    maxVram: "8",
+  };
+  const generateInput = normalizeWorkflowInput({
+    stages: [{ id: "klein-1", prompt: "a cat", seed: 10 }],
+  });
+  const generateCommands = buildWorkflowCommands(
+    config,
+    generateInput,
+    workflowPaths("/outputs", "generate", generateInput),
+  );
+  assert.equal(generateCommands.length, 1);
+  assert.equal(generateCommands[0].args[0], "generate");
+  assert.equal(generateCommands[0].args.includes("--klein-kv-cache"), false);
+
+  const chainInput = normalizeWorkflowInput({
+    stages: [
+      { id: "klein-1", prompt: "a cat", seed: 10 },
+      {
+        id: "klein-2",
+        inputStageId: "klein-1",
+        prompt: "add a suit",
+        seed: 11,
+      },
+      {
+        id: "klein-3",
+        inputStageId: "klein-2",
+        prompt: "make the tie red",
+        seed: 12,
+      },
+    ],
+  });
+  const chainCommands = buildWorkflowCommands(
+    config,
+    chainInput,
+    workflowPaths("/outputs", "chain", chainInput),
+  );
+  assert.deepEqual(chainCommands.map(({ stageIds }) => stageIds), [
+    ["klein-1", "klein-2"],
+    ["klein-3"],
+  ]);
+  assert.equal(chainCommands[0].args[0], "generate-edit");
+  assert.equal(chainCommands[1].args[0], "edit");
+  assert.equal(
+    chainCommands[1].args[chainCommands[1].args.indexOf("--reference-image") + 1],
+    "/outputs/chain/klein-2.png",
   );
 });
 

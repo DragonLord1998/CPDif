@@ -4,14 +4,15 @@ const $$ = (selector) => [...document.querySelectorAll(selector)];
 const canvas = $("#canvas");
 const elements = {
   form: $("#job-form"),
-  submit: $("#submit-button"),
-  submitText: $("#generate-text"),
-  cancel: $("#cancel-button"),
+  template: $("#klein-node-template"),
+  outputNode: $("#output-node"),
+  workflowPanel: $("#workflow-panel"),
+  addNode: $("#add-klein-node"),
   error: $("#form-error"),
   runtimeDot: $("#runtime-dot"),
   runtimeLabel: $("#runtime-label"),
   runtimeDetail: $("#runtime-detail"),
-  fluxState: $("#flux-state"),
+  workflowSummary: $("#workflow-summary"),
   jobStatus: $("#job-status"),
   jobLog: $("#job-log"),
   loraName: $("#lora-name"),
@@ -21,18 +22,13 @@ const elements = {
   loraStatus: $("#lora-status"),
   loraList: $("#lora-list"),
   loraCount: $("#lora-count"),
-  prompt: $("#prompt"),
-  editPrompt: $("#edit-prompt"),
-  promptCounter: $("#prompt-counter"),
-  editCounter: $("#edit-counter"),
-  sourceImage: $("#source-image"),
-  editedImage: $("#edited-image"),
-  sourcePlaceholder: $("#source-placeholder"),
-  editedPlaceholder: $("#edited-placeholder"),
-  sourceTime: $("#source-time"),
-  editedTime: $("#edited-time"),
+  stageTabs: $("#stage-tabs"),
+  outputImage: $("#output-image"),
+  outputPlaceholder: $("#output-placeholder"),
   outputSize: $("#output-size"),
   activeTime: $("#active-time"),
+  activeMode: $("#active-mode"),
+  activeStage: $("#active-stage"),
   loading: $("#loading"),
   loadingText: $("#loading-text"),
   modal: $("#image-modal"),
@@ -41,17 +37,17 @@ const elements = {
   toast: $("#toast"),
 };
 
-const defaultLayout = {
-  "source-node": [60, 135, 310, 380],
-  "flux-node": [440, 72, 410, 440],
-  "output-node": [930, 62, 400, 520],
-};
-
+const stages = [];
+let nextStageNumber = 1;
 let activeJobId = null;
-let activeView = "edited";
+let activeStageId = null;
+let selectedStageId = null;
+let latestJob = null;
 let pollTimer = null;
 let loadingTimer = null;
 let zoom = 1;
+let runtimeReady = false;
+let workflowBusy = false;
 
 function formatMs(value) {
   return Number.isFinite(value) ? `${(value / 1000).toFixed(2)} s` : "—";
@@ -90,30 +86,55 @@ async function api(path, options) {
   return payload;
 }
 
+function stageById(id) {
+  return stages.find((stage) => stage.id === id) ?? null;
+}
+
 function selectNode(node) {
   $$(".node").forEach((candidate) => {
     candidate.classList.toggle("selected", candidate === node);
   });
+  selectedStageId = node?.dataset.stageId ?? selectedStageId;
 }
 
-function curve(from, to, path) {
+function curve(from, to, pathElement) {
   const canvasRect = canvas.getBoundingClientRect();
-  const fromRect = from.getBoundingClientRect();
-  const toRect = to.getBoundingClientRect();
-  const x1 = (fromRect.right - canvasRect.left) / zoom;
+  const fromPort = from.querySelector(".port-out") ?? from;
+  const toPort = to.querySelector(".port-in") ?? to;
+  const fromRect = fromPort.getBoundingClientRect();
+  const toRect = toPort.getBoundingClientRect();
+  const x1 = (fromRect.left + fromRect.width / 2 - canvasRect.left) / zoom;
   const y1 = (fromRect.top + fromRect.height / 2 - canvasRect.top) / zoom;
-  const x2 = (toRect.left - canvasRect.left) / zoom;
+  const x2 = (toRect.left + toRect.width / 2 - canvasRect.left) / zoom;
   const y2 = (toRect.top + toRect.height / 2 - canvasRect.top) / zoom;
   const bend = Math.max(65, Math.abs(x2 - x1) * 0.44);
-  path.setAttribute(
+  pathElement.setAttribute(
     "d",
     `M ${x1} ${y1} C ${x1 + bend} ${y1}, ${x2 - bend} ${y2}, ${x2} ${y2}`,
   );
 }
 
+function addWire(from, to, className = "wire") {
+  const pathElement = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  pathElement.setAttribute("class", className);
+  $("#wires").append(pathElement);
+  curve(from, to, pathElement);
+}
+
 function updateWires() {
-  curve($("#source-node"), $("#flux-node"), $("#wire-source"));
-  curve($("#flux-node"), $("#output-node"), $("#wire-output"));
+  $("#wires").replaceChildren();
+  for (const stage of stages) {
+    if (stage.inputStageId) {
+      const source = stageById(stage.inputStageId);
+      if (source) {
+        addWire(source.node, stage.node);
+      }
+    }
+  }
+  const last = stages.at(-1);
+  if (last) {
+    addWire(last.node, elements.outputNode, "wire output");
+  }
 }
 
 function attachNode(node) {
@@ -130,7 +151,7 @@ function attachNode(node) {
   let startHeight = 0;
 
   head.addEventListener("pointerdown", (event) => {
-    if (event.target.closest("button")) {
+    if (event.target.closest("button, input, select")) {
       return;
     }
     dragging = true;
@@ -189,59 +210,208 @@ function updateZoom() {
   window.setTimeout(updateWires, 180);
 }
 
+function layoutNodes() {
+  stages.forEach((stage, index) => {
+    stage.node.style.left = `${70 + index * 470}px`;
+    stage.node.style.top = "80px";
+    stage.node.style.width = "410px";
+    stage.node.style.height = "440px";
+  });
+  const outputLeft = 70 + stages.length * 470;
+  elements.outputNode.style.left = `${outputLeft}px`;
+  elements.outputNode.style.top = "70px";
+  elements.outputNode.style.width = "400px";
+  elements.outputNode.style.height = "520px";
+  elements.workflowPanel.style.left = "70px";
+  elements.workflowPanel.style.top = "550px";
+  canvas.style.width = `${Math.max(1500, outputLeft + 480)}px`;
+  canvas.style.height = "1150px";
+  updateWires();
+}
+
 function resetLayout() {
-  for (const [id, values] of Object.entries(defaultLayout)) {
-    const node = document.getElementById(id);
-    [node.style.left, node.style.top, node.style.width, node.style.height] = values.map(
-      (value) => `${value}px`,
-    );
-  }
+  layoutNodes();
   zoom = 1;
   updateZoom();
   toast("Layout reset");
 }
 
-function updateCounter(input, counter) {
-  counter.textContent = `${input.value.length} / 4000`;
+function updateCounter(stage) {
+  const value = `${stage.prompt.value.length} / 4000`;
+  stage.node.querySelector(".prompt-counter").textContent = value;
+  stage.node.querySelector(".prompt-counter-overlay").textContent = value;
 }
 
-function activeOutput() {
+function refreshConnectionOptions() {
+  stages.forEach((stage, index) => {
+    const previous = stages.slice(0, index);
+    const select = stage.source;
+    const current = stage.inputStageId;
+    select.replaceChildren();
+    const none = document.createElement("option");
+    none.value = "";
+    none.textContent = "No image connected";
+    select.append(none);
+    for (const candidate of previous) {
+      const option = document.createElement("option");
+      option.value = candidate.id;
+      option.textContent = `${candidate.label} output`;
+      select.append(option);
+    }
+    stage.inputStageId = previous.some(({ id }) => id === current) ? current : null;
+    select.value = stage.inputStageId ?? "";
+    updateStageMode(stage);
+  });
+  updateWorkflowSummary();
+  renderStageTabs();
+  updateWires();
+}
+
+function updateStageMode(stage) {
+  const edit = Boolean(stage.inputStageId);
+  const badge = stage.node.querySelector(".mode-badge");
+  badge.textContent = edit ? "Edit" : "Generate";
+  badge.classList.toggle("edit", edit);
+  stage.node.classList.toggle("edit-mode", edit);
+  stage.node.querySelector(".prompt-label").textContent = edit
+    ? "What should change?"
+    : "Describe the image";
+  stage.node.querySelector(".mode-hint").textContent = edit
+    ? `Image connected from ${stageById(stage.inputStageId)?.label ?? "upstream"} · Edit mode`
+    : "No image connected · Generate mode";
+  stage.node.querySelector(".run-workflow-text").textContent = edit
+    ? "◈ Edit image"
+    : "✦ Generate";
+  stage.node.querySelector(".node-status").textContent = edit
+    ? "Ready to edit the connected image"
+    : "Ready to generate from text";
+}
+
+function updateWorkflowSummary() {
+  const edits = stages.filter(({ inputStageId }) => inputStageId).length;
+  const generates = stages.length - edits;
+  elements.workflowSummary.textContent = `${generates} Generate · ${edits} Edit`;
+}
+
+function addStage({ connectPrevious = true } = {}) {
+  if (workflowBusy || stages.length >= 8) {
+    toast(workflowBusy ? "Wait for the active workflow" : "Maximum 8 Klein nodes");
+    return;
+  }
+  const id = `klein-${nextStageNumber}`;
+  const label = `Klein ${nextStageNumber}`;
+  const node = elements.template.content.firstElementChild.cloneNode(true);
+  node.id = id;
+  node.dataset.stageId = id;
+  node.querySelector(".node-title").textContent = label;
+  const source = node.querySelector(".image-source");
+  const prompt = node.querySelector(".stage-prompt");
+  const size = node.querySelector(".stage-size");
+  const seed = node.querySelector(".stage-seed");
+  seed.value = String(20260731 + stages.length);
+  prompt.value = stages.length === 0
+    ? "A realistic orange tabby cat sitting in a softly lit gray studio, full body, centered composition"
+    : "Keep the same subject and composition. Dress the subject in a fitted black business suit with a white shirt and black tie.";
+  const stage = {
+    id,
+    label,
+    node,
+    source,
+    prompt,
+    size,
+    seed,
+    inputStageId: connectPrevious ? stages.at(-1)?.id ?? null : null,
+  };
+  stages.push(stage);
+  nextStageNumber += 1;
+  elements.form.append(node);
+  attachNode(node);
+  source.addEventListener("change", () => {
+    stage.inputStageId = source.value || null;
+    updateStageMode(stage);
+    updateWorkflowSummary();
+    renderStageTabs();
+    updateWires();
+  });
+  prompt.addEventListener("input", () => updateCounter(stage));
+  prompt.addEventListener("keydown", (event) => {
+    if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+      event.preventDefault();
+      elements.form.requestSubmit();
+    }
+  });
+  node.querySelector(".remove-node").addEventListener("click", () => removeStage(stage.id));
+  node.querySelector(".cancel-workflow").addEventListener("click", cancelWorkflow);
+  updateCounter(stage);
+  refreshConnectionOptions();
+  layoutNodes();
+  selectNode(node);
+  setBusy(workflowBusy);
+}
+
+function removeStage(id) {
+  if (workflowBusy) {
+    toast("Stop the active workflow first");
+    return;
+  }
+  if (stages.length === 1) {
+    toast("Keep at least one Klein node");
+    return;
+  }
+  const index = stages.findIndex((stage) => stage.id === id);
+  if (index < 0) {
+    return;
+  }
+  stages[index].node.remove();
+  stages.splice(index, 1);
+  for (const stage of stages) {
+    if (stage.inputStageId === id) {
+      stage.inputStageId = null;
+    }
+  }
+  if (selectedStageId === id) {
+    selectedStageId = stages.at(-1).id;
+  }
+  if (activeStageId === id) {
+    activeStageId = stages.at(-1).id;
+  }
+  refreshConnectionOptions();
+  layoutNodes();
+  selectNode(stageById(selectedStageId)?.node ?? stages.at(-1).node);
+  setBusy(workflowBusy);
+}
+
+function workflowPayload() {
   return {
-    image: activeView === "source" ? elements.sourceImage : elements.editedImage,
-    time: activeView === "source" ? elements.sourceTime.textContent : elements.editedTime.textContent,
+    stages: stages.map((stage) => ({
+      id: stage.id,
+      inputStageId: stage.inputStageId,
+      prompt: stage.prompt.value,
+      width: Number(stage.size.value),
+      height: Number(stage.size.value),
+      seed: Number(stage.seed.value),
+    })),
   };
 }
 
-function setView(view) {
-  activeView = view;
-  $$("[data-view]").forEach((button) => {
-    const active = button.dataset.view === view;
-    button.classList.toggle("active", active);
-    button.setAttribute("aria-selected", String(active));
-  });
-  $$("[data-output]").forEach((layer) => {
-    const active = layer.dataset.output === view;
-    layer.classList.toggle("active", active);
-    layer.hidden = !active;
-  });
-  const output = activeOutput();
-  elements.activeTime.textContent = output.time === "—" ? "Ready" : output.time;
-}
-
 function setBusy(busy) {
-  elements.submit.disabled = busy;
-  elements.submit.classList.toggle("generating", busy);
-  elements.submitText.textContent = busy ? "Generating…" : "✦ Generate + edit";
-  elements.cancel.hidden = !busy;
+  workflowBusy = busy;
+  for (const stage of stages) {
+    const run = stage.node.querySelector(".run-workflow");
+    const cancel = stage.node.querySelector(".cancel-workflow");
+    run.disabled = busy || !runtimeReady;
+    run.classList.toggle("generating", busy);
+    cancel.hidden = !busy;
+  }
+  elements.addNode.disabled = busy || stages.length >= 8;
   elements.loading.hidden = !busy;
   window.clearInterval(loadingTimer);
   if (busy) {
     const messages = [
-      "Encoding the source prompt…",
-      "Sampling the source image…",
-      "Caching reference attention…",
-      "Applying the edit instruction…",
-      "Decoding the KV result…",
+      "Loading the native Klein context…",
+      "Running connected Generate and Edit stages…",
+      "Caching reference attention for edit nodes…",
+      "Decoding workflow outputs…",
     ];
     let index = 0;
     elements.loadingText.textContent = messages[index];
@@ -252,46 +422,99 @@ function setBusy(busy) {
   }
 }
 
-function resetResults() {
-  for (const image of [elements.sourceImage, elements.editedImage]) {
-    image.hidden = true;
-    image.removeAttribute("src");
+function renderStageTabs(job = latestJob) {
+  elements.stageTabs.replaceChildren();
+  for (const stage of stages) {
+    const button = document.createElement("button");
+    const mode = stage.inputStageId ? "Edit" : "Generate";
+    button.type = "button";
+    button.role = "tab";
+    button.dataset.stageId = stage.id;
+    button.textContent = `${stage.label} · ${mode}`;
+    button.addEventListener("click", () => setActiveStage(stage.id, job));
+    elements.stageTabs.append(button);
   }
-  elements.sourcePlaceholder.hidden = false;
-  elements.editedPlaceholder.hidden = false;
-  elements.sourceTime.textContent = "—";
-  elements.editedTime.textContent = "—";
+  if (!activeStageId || !stageById(activeStageId)) {
+    activeStageId = stages.at(-1)?.id ?? null;
+  }
+  setActiveStage(activeStageId, job);
+}
+
+function setActiveStage(id, job = latestJob) {
+  const stage = stageById(id);
+  if (!stage) {
+    return;
+  }
+  activeStageId = id;
+  for (const button of elements.stageTabs.querySelectorAll("button")) {
+    const active = button.dataset.stageId === id;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-selected", String(active));
+  }
+  elements.activeMode.textContent = stage.inputStageId ? "Edit" : "Generate";
+  elements.activeStage.textContent = stage.label;
+  elements.outputSize.textContent = `${stage.size.value} × ${stage.size.value}`;
+  const timing = job?.telemetry?.[id]?.generation_ms;
+  elements.activeTime.textContent = Number.isFinite(timing) ? formatMs(timing) : "Ready";
+  const imageUrl = job?.images?.[id];
+  if (imageUrl) {
+    const version = encodeURIComponent(job.completedAt);
+    elements.outputImage.src = `${imageUrl}?v=${version}`;
+    elements.outputImage.alt = `${stage.label} ${stage.inputStageId ? "edited" : "generated"} output`;
+    elements.outputImage.hidden = false;
+    elements.outputPlaceholder.hidden = true;
+  } else {
+    elements.outputImage.hidden = true;
+    elements.outputImage.removeAttribute("src");
+    elements.outputPlaceholder.hidden = false;
+  }
+}
+
+function resetResults() {
+  latestJob = null;
+  elements.outputImage.hidden = true;
+  elements.outputImage.removeAttribute("src");
+  elements.outputPlaceholder.hidden = false;
   elements.activeTime.textContent = "Running";
   elements.jobLog.textContent = "Waiting for native runtime output…";
+  renderStageTabs(null);
 }
 
 function showCompletedJob(job) {
-  const version = encodeURIComponent(job.completedAt);
-  elements.sourceImage.src = `${job.images.source}?v=${version}`;
-  elements.editedImage.src = `${job.images.edited}?v=${version}`;
-  elements.sourceImage.hidden = false;
-  elements.editedImage.hidden = false;
-  elements.sourcePlaceholder.hidden = true;
-  elements.editedPlaceholder.hidden = true;
-  elements.sourceTime.textContent = formatMs(job.telemetry?.source?.generation_ms);
-  elements.editedTime.textContent = formatMs(job.telemetry?.edited?.generation_ms);
-  setView("edited");
+  latestJob = job;
+  const finalId = stages.at(-1)?.id;
+  renderStageTabs(job);
+  if (finalId) {
+    setActiveStage(finalId, job);
+  }
 }
 
 function renderJob(job) {
   const labels = {
-    queued: "Queued behind the active GPU job",
+    queued: "Queued behind the active GPU workflow",
     running: "Running on CUDA",
     cancelling: "Stopping native process",
-    cancelled: "Job stopped",
-    failed: "Native job failed",
-    completed: "KV edit complete",
+    cancelled: "Workflow stopped",
+    failed: "Native workflow failed",
+    completed: "Workflow complete",
   };
   elements.jobStatus.textContent = labels[job.status] ?? job.status;
   elements.jobLog.textContent = job.log || "Waiting for native runtime output…";
+  const active = new Set(job.activeStages ?? []);
+  for (const stage of stages) {
+    const status = stage.node.querySelector(".node-status");
+    status.classList.toggle("active", active.has(stage.id));
+    status.textContent = active.has(stage.id)
+      ? `Running ${stage.inputStageId ? "Edit" : "Generate"} on CUDA…`
+      : job.status === "completed"
+        ? "Output ready"
+        : stage.inputStageId
+          ? "Waiting for connected image"
+          : "Ready to generate from text";
+  }
   if (job.status === "completed") {
     showCompletedJob(job);
-    toast("Native edit completed");
+    toast("Native workflow completed");
   }
   if (["completed", "failed", "cancelled"].includes(job.status)) {
     setBusy(false);
@@ -322,29 +545,24 @@ async function pollJob() {
 
 async function checkRuntime() {
   elements.runtimeDot.classList.remove("ready", "error");
-  elements.fluxState.classList.remove("ready", "error");
   try {
     const status = await api("/api/status");
+    runtimeReady = status.ready;
     elements.runtimeDot.classList.toggle("ready", status.ready);
-    elements.fluxState.classList.toggle("ready", status.ready);
-    elements.fluxState.classList.toggle("error", !status.ready);
     elements.runtimeLabel.textContent = status.ready ? "Runtime ready" : "Runtime incomplete";
-    elements.fluxState.textContent = status.ready ? "Ready" : "Incomplete";
     const missing = Object.entries(status.checks)
       .filter(([, ready]) => !ready)
       .map(([name]) => name);
     elements.runtimeDetail.textContent = status.ready
       ? `${status.profile}${status.maxVram ? ` · ${status.maxVram} GiB graph budget` : ""}`
       : `Missing: ${missing.join(", ")}`;
-    elements.submit.disabled = !status.ready;
   } catch (error) {
+    runtimeReady = false;
     elements.runtimeDot.classList.add("error");
-    elements.fluxState.classList.add("error");
     elements.runtimeLabel.textContent = "Runtime unavailable";
     elements.runtimeDetail.textContent = error.message;
-    elements.fluxState.textContent = "Offline";
-    elements.submit.disabled = true;
   }
+  setBusy(workflowBusy);
 }
 
 function renderLoras(loras) {
@@ -422,22 +640,12 @@ elements.form.addEventListener("submit", async (event) => {
   window.clearTimeout(pollTimer);
   elements.error.textContent = "";
   resetResults();
-  setView("edited");
   setBusy(true);
-  const data = new FormData(elements.form);
-  const size = Number(data.get("size"));
-  elements.outputSize.textContent = `${size} × ${size}`;
   try {
     const job = await api("/api/jobs", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        prompt: data.get("prompt"),
-        editPrompt: data.get("editPrompt"),
-        width: size,
-        height: size,
-        seed: Number(data.get("seed")),
-      }),
+      body: JSON.stringify(workflowPayload()),
     });
     activeJobId = job.id;
     renderJob(job);
@@ -448,11 +656,10 @@ elements.form.addEventListener("submit", async (event) => {
   }
 });
 
-elements.cancel.addEventListener("click", async () => {
+async function cancelWorkflow() {
   if (!activeJobId) {
     return;
   }
-  elements.cancel.disabled = true;
   try {
     renderJob(
       await api(`/api/jobs/${activeJobId}/cancel`, {
@@ -462,11 +669,10 @@ elements.cancel.addEventListener("click", async () => {
     );
   } catch (error) {
     elements.error.textContent = error.message;
-  } finally {
-    elements.cancel.disabled = false;
   }
-});
+}
 
+elements.addNode.addEventListener("click", () => addStage());
 elements.loraDownload.addEventListener("click", downloadLora);
 for (const input of [elements.loraName, elements.loraUrl]) {
   input.addEventListener("keydown", (event) => {
@@ -477,58 +683,34 @@ for (const input of [elements.loraName, elements.loraUrl]) {
   });
 }
 
-for (const input of [elements.prompt, elements.editPrompt]) {
-  input.addEventListener("input", () =>
-    updateCounter(
-      input,
-      input === elements.prompt ? elements.promptCounter : elements.editCounter,
-    ),
-  );
-  input.addEventListener("keydown", (event) => {
-    if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
-      event.preventDefault();
-      elements.form.requestSubmit();
-    }
-  });
-}
-
-for (const button of $$("[data-view]")) {
-  button.addEventListener("click", () => setView(button.dataset.view));
-}
-
-$("#size").addEventListener("change", (event) => {
-  elements.outputSize.textContent = `${event.target.value} × ${event.target.value}`;
-});
-
 $("#copy-prompt").addEventListener("click", async () => {
+  const stage = stageById(activeStageId) ?? stageById(selectedStageId);
   try {
-    await navigator.clipboard.writeText(elements.editPrompt.value);
-    toast("Edit instruction copied");
+    await navigator.clipboard.writeText(stage?.prompt.value ?? "");
+    toast("Stage prompt copied");
   } catch {
     toast("Clipboard unavailable");
   }
 });
 
 $("#download-output").addEventListener("click", () => {
-  const { image } = activeOutput();
-  if (image.hidden || !image.src) {
-    toast("Run a job first");
+  if (elements.outputImage.hidden || !elements.outputImage.src) {
+    toast("Run a workflow first");
     return;
   }
   const link = document.createElement("a");
-  link.href = image.src;
-  link.download = `cpdif-${activeView}.png`;
+  link.href = elements.outputImage.src;
+  link.download = `cpdif-${activeStageId}.png`;
   link.click();
 });
 
 $("#expand-output").addEventListener("click", () => {
-  const { image } = activeOutput();
-  if (image.hidden || !image.src) {
-    toast("Run a job first");
+  if (elements.outputImage.hidden || !elements.outputImage.src) {
+    toast("Run a workflow first");
     return;
   }
-  elements.modalTitle.textContent = activeView === "source" ? "Source output" : "Edited output";
-  elements.modalImage.replaceChildren(image.cloneNode());
+  elements.modalTitle.textContent = `${stageById(activeStageId)?.label ?? "Klein"} output`;
+  elements.modalImage.replaceChildren(elements.outputImage.cloneNode());
   elements.modal.showModal();
 });
 
@@ -553,15 +735,14 @@ $("#zoom-value").addEventListener("click", () => {
 });
 $("#reset-layout").addEventListener("click", resetLayout);
 
-$$(".node").forEach(attachNode);
+attachNode(elements.outputNode);
 window.addEventListener("resize", updateWires);
 if (window.ResizeObserver) {
   new ResizeObserver(updateWires).observe(canvas);
 }
 
-updateCounter(elements.prompt, elements.promptCounter);
-updateCounter(elements.editPrompt, elements.editCounter);
-setView("edited");
-updateWires();
+addStage({ connectPrevious: false });
+setActiveStage(stages[0].id);
+updateZoom();
 void checkRuntime();
 void loadLoras();

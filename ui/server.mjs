@@ -155,10 +155,10 @@ export function createHttpServer({
       }
 
       const imageMatch = pathname.match(
-        /^\/api\/jobs\/([a-f0-9-]+)\/images\/(source|edited)$/i,
+        /^\/api\/jobs\/([a-f0-9-]+)\/images\/([a-z][a-z0-9-]{0,31})$/,
       );
       if (imageMatch && request.method === "GET") {
-        const imagePath = jobs.imagePath(imageMatch[1], imageMatch[2].toLowerCase());
+        const imagePath = jobs.imagePath(imageMatch[1], imageMatch[2]);
         if (!imagePath) {
           sendError(response, 404, "image not found");
           return;
