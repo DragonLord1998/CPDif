@@ -11,7 +11,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_OUTPUT = REPO_ROOT / "notebooks" / "CPDif_Klein_9B_UI_Colab.ipynb"
 CPDIF_REPOSITORY = "https://github.com/DragonLord1998/CPDif.git"
-CPDIF_REVISION = "d2ab26a95ad0be41166e5d9d6d71e00104b16dca"
+CPDIF_REVISION = "e9885b02b8919e7f860005878f69d77d0f19ae1e"
 UI_PORT = 4173
 
 
@@ -165,14 +165,33 @@ def prepare_repository():
         remote = command_output(["git", "-C", CPDIF_REPO_DIR, "remote", "get-url", "origin"])
         if remote.rstrip("/").removesuffix(".git") != CPDIF_REPOSITORY.rstrip("/").removesuffix(".git"):
             raise RuntimeError(f"Refusing to replace checkout with unexpected origin: {{remote}}")
-        run(["git", "-C", CPDIF_REPO_DIR, "fetch", "--depth", "1", "origin", CPDIF_REVISION])
     else:
         run(["git", "clone", "--filter=blob:none", "--no-checkout", CPDIF_REPOSITORY, CPDIF_REPO_DIR])
-        run(["git", "-C", CPDIF_REPO_DIR, "fetch", "--depth", "1", "origin", CPDIF_REVISION])
+    shallow = command_output(
+        ["git", "-C", CPDIF_REPO_DIR, "rev-parse", "--is-shallow-repository"]
+    )
+    if shallow == "true":
+        print("Restoring Git ancestry required by release-cache validation...")
+        run(["git", "-C", CPDIF_REPO_DIR, "fetch", "--unshallow", "--filter=blob:none", "origin"])
+    run(["git", "-C", CPDIF_REPO_DIR, "fetch", "--filter=blob:none", "origin", CPDIF_REVISION])
     run(["git", "-C", CPDIF_REPO_DIR, "checkout", "--detach", "--force", CPDIF_REVISION])
     actual = command_output(["git", "-C", CPDIF_REPO_DIR, "rev-parse", "HEAD"])
     if actual != CPDIF_REVISION:
         raise RuntimeError(f"CPDif revision mismatch: expected {{CPDIF_REVISION}}, found {{actual}}")
+
+
+def restore_release_cache(env):
+    command = ["bash", CPDIF_REPO_DIR / "scripts/colab/10_restore_release_cache.sh"]
+    print("+", " ".join(str(part) for part in command), flush=True)
+    result = subprocess.run([str(part) for part in command], env=env, check=False)
+    if result.returncode == 0:
+        return True
+    print(
+        "Release cache restore failed; continuing with a source build. "
+        "This is slower, but produces the same validated binary.",
+        flush=True,
+    )
+    return False
 
 
 def stop_previous_ui():
@@ -294,7 +313,7 @@ if hf_token:
 run(["bash", CPDIF_REPO_DIR / "scripts/colab/00_install_build_deps.sh"], env=build_env)
 install_node_if_needed()
 run(["bash", CPDIF_REPO_DIR / "scripts/colab/01_prepare_upstream.sh"], env=build_env)
-run(["bash", CPDIF_REPO_DIR / "scripts/colab/10_restore_release_cache.sh"], env=build_env)
+restore_release_cache(build_env)
 run(["bash", CPDIF_REPO_DIR / "scripts/colab/02_build_cuda.sh"], env=build_env)
 
 aux_model_env = build_env.copy()
