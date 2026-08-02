@@ -23,6 +23,13 @@ new edit, including recovery after an interrupted graph. This is reference
 attention reuse, not denoiser-step skipping and not CPDif's approximate
 Cache-DiT mode.
 
+The persistent tensors stay on CUDA. On A100 40GB the runtime uses an 8 GiB
+graph-allocation limit, which segments execution without moving the K/V cache
+to the host. The reference K/V tensors are graph outputs at the extraction
+boundary; they are not separate graph cuts, because extra cache-only cut
+boundaries corrupt segmented execution. RTX PRO 6000 uses the normal full-graph
+CUDA path.
+
 The implementation is distributed as
 `patches/stable-diffusion-klein-kv-cache.patch`. CMake checks and applies it
 idempotently to both a local `CPDIF_SDCXX_SOURCE_DIR` checkout and the pinned
@@ -74,14 +81,21 @@ three persistent 1024x1024 four-step requests, validates every PNG and
 telemetry file, records model/output/patch hashes and peak VRAM, and discards
 the warm request from each profile. The candidate runs first, giving the
 standard baseline any GPU-ordering advantage. The script fails unless the
-standard checkpoint still reproduces its previously recorded output hashes and
-the KV checkpoint has lower steady-state image-edit latency on the identical
-GPU. It also reports the combined generate-plus-edit pair separately so serving
-tradeoffs remain clear.
+standard checkpoint reproduces its historical GPU-specific output hashes, both
+profiles produce distinct outputs across requests, and the KV checkpoint has
+lower steady-state image-edit latency on the identical GPU. It reports the
+combined generate-plus-edit pair separately so serving tradeoffs remain clear.
 
-Until that evaluator finishes, CPDif claims only that the native integration
-compiles and passes local regression tests. It does not claim a new measured
-speedup or completed GPU visual validation.
+The final exact-commit measurements are:
+
+| GPU | KV edit vs standard | KV pair vs standard | Peak VRAM |
+| --- | ---: | ---: | ---: |
+| A100-SXM4-40GB | 9.332 s vs 12.497 s (1.339x) | 15.884 s vs 19.022 s (1.198x) | 33,760 MiB |
+| RTX PRO 6000 Blackwell | 3.780 s vs 5.370 s (1.421x) | 6.172 s vs 7.758 s (1.257x) | 34,547 MiB |
+
+Representative standard and KV outputs passed manual visual review on both
+GPUs. Full samples, hashes, hardware metadata, and cache checksums are in
+`docs/benchmarks/2026-08-02-klein-kv.json`.
 
 ## Licensing
 

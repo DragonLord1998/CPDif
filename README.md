@@ -230,8 +230,9 @@ This flag is valid only with the dedicated `FLUX.2-klein-9B-KV` weights and
 CFG 1.0, without layer streaming or a diffusion cache. Do not enable it with
 the standard Klein 9B checkpoint. Run
 `scripts/colab/09_klein_kv_validation.sh` for the pinned GPU benchmark. The
-native path compiles and passes local regression tests; its new GPU latency and
-visual result remain unclaimed until that evaluator completes. See
+validated KV path reduces steady-state edit latency by 25.33% on A100 40GB and
+29.61% on RTX PRO 6000, with visually reviewed same-cat edits. See
+[the benchmark record](docs/benchmarks/2026-08-02-klein-kv.json) and
 [the Klein KV-cache implementation notes](docs/KLEIN_KV_CACHE.md).
 
 `scripts/colab/06_cat_and_suit.sh` runs the required two-image acceptance path:
