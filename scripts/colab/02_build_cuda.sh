@@ -10,12 +10,6 @@ CPDIF_BUILD_JOBS="${CPDIF_BUILD_JOBS:-$(nproc)}"
 CPDIF_CCACHE_DIR="${CPDIF_CCACHE_DIR:-${CPDIF_WORKDIR}/ccache}"
 CPDIF_CCACHE_MAX_SIZE="${CPDIF_CCACHE_MAX_SIZE:-20G}"
 CPDIF_CUDA_ARCHITECTURES="${CPDIF_CUDA_ARCHITECTURES:-}"
-CPDIF_CUDA_GRAPHS="${CPDIF_CUDA_GRAPHS:-ON}"
-
-if [[ "${CPDIF_CUDA_GRAPHS}" != "ON" && "${CPDIF_CUDA_GRAPHS}" != "OFF" ]]; then
-  echo "CPDIF_CUDA_GRAPHS must be ON or OFF." >&2
-  exit 2
-fi
 
 if [[ -z "${CPDIF_CUDA_ARCHITECTURES}" ]]; then
   compute_capability="$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader,nounits | head -n1 | tr -d '[:space:].')"
@@ -56,7 +50,6 @@ cmake -S "${CPDIF_REPO_DIR}" -B "${CPDIF_BUILD_DIR}" -G Ninja \
   -DCPDIF_ENABLE_CUDA=ON \
   -DCPDIF_OFFLINE=OFF \
   -DCPDIF_CUDA_ARCHITECTURES="${CPDIF_CUDA_ARCHITECTURES}" \
-  -DGGML_CUDA_GRAPHS="${CPDIF_CUDA_GRAPHS}" \
   -DCPDIF_SDCXX_SOURCE_DIR="${SDC_DIR}" \
   -DCMAKE_C_COMPILER_LAUNCHER=ccache \
   -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
