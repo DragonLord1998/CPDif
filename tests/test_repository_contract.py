@@ -87,6 +87,18 @@ class RepositoryContractTests(unittest.TestCase):
         self.assertIn("cpdif-gpu-build-cache-v4-sm", restore_text)
         self.assertIn("05_restore_cache.sh", restore_text)
 
+    def test_cuda_graph_build_and_runtime_probe_contract(self):
+        build = REPO_ROOT / "scripts" / "colab" / "02_build_cuda.sh"
+        validation = REPO_ROOT / "scripts" / "colab" / "09_klein_kv_validation.sh"
+        probe = REPO_ROOT / "scripts" / "colab" / "cuda_graph_probe.py"
+
+        build_text = build.read_text(encoding="utf-8")
+        validation_text = validation.read_text(encoding="utf-8")
+        self.assertIn('CPDIF_CUDA_GRAPHS="${CPDIF_CUDA_GRAPHS:-ON}"', build_text)
+        self.assertIn('-DGGML_CUDA_GRAPHS="${CPDIF_CUDA_GRAPHS}"', build_text)
+        self.assertIn("cuda_graph_probe.py", validation_text)
+        self.assertIn("CUDA graph warmup complete", probe.read_text(encoding="utf-8"))
+
 
 if __name__ == "__main__":
     unittest.main()

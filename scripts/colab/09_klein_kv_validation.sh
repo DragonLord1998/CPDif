@@ -35,6 +35,15 @@ if [[ -z "${CPDIF_BUILD_DIR:-}" ]]; then
   fi
 fi
 
+python3 "${SCRIPT_DIR}/cuda_graph_probe.py" \
+  --gpu-key "${gpu_key}" \
+  --build-dir "${CPDIF_BUILD_DIR}" \
+  --binary "${CPDIF_BUILD_DIR}/bin/cpdif" \
+  --transformer "${CPDIF_WORKDIR}/models/flux-2-klein-9b-kv-Q8_0.gguf" \
+  --text-encoder "${CPDIF_WORKDIR}/models/qwen_3_8b.safetensors" \
+  --vae "${CPDIF_WORKDIR}/models/flux2-vae.safetensors" \
+  --output-dir "${CPDIF_WORKDIR}/outputs/klein-kv/${gpu_key}/cuda-graph-probe"
+
 python3 "${SCRIPT_DIR}/klein_kv_benchmark.py" \
   --gpu-key "${gpu_key}" \
   --binary "${CPDIF_BUILD_DIR}/bin/cpdif" \
