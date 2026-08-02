@@ -11,7 +11,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_OUTPUT = REPO_ROOT / "notebooks" / "CPDif_Klein_9B_UI_Colab.ipynb"
 CPDIF_REPOSITORY = "https://github.com/DragonLord1998/CPDif.git"
-CPDIF_REVISION = "4c31195f584b12a2fdb530124125b471bd831e31"
+CPDIF_REVISION = "0128f38dd9faf7011342a63706fd6ab763d189dc"
 UI_PORT = 4173
 
 
