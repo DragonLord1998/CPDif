@@ -8,6 +8,8 @@ const elements = {
   outputNode: $("#output-node"),
   workflowPanel: $("#workflow-panel"),
   addNode: $("#add-klein-node"),
+  promptAssistantStatus: $("#prompt-assistant-status"),
+  promptAssistantStatusText: $("#prompt-assistant-status .assistant-status-text"),
   error: $("#form-error"),
   runtimeDot: $("#runtime-dot"),
   runtimeLabel: $("#runtime-label"),
@@ -48,6 +50,8 @@ let loadingTimer = null;
 let zoom = 1;
 let runtimeReady = false;
 let workflowBusy = false;
+let assistantReady = false;
+let assistantStatusTimer = null;
 
 function formatMs(value) {
   return Number.isFinite(value) ? `${(value / 1000).toFixed(2)} s` : "—";
@@ -242,6 +246,120 @@ function updateCounter(stage) {
   stage.node.querySelector(".prompt-counter-overlay").textContent = value;
 }
 
+function anyAssistantBusy() {
+  return stages.some((stage) => stage.assistantBusy);
+}
+
+function updateAssistantControls(stage) {
+  stage.improve.disabled =
+    !assistantReady || workflowBusy || stage.assistantBusy || anyAssistantBusy();
+  stage.improve.classList.toggle("busy", stage.assistantBusy);
+  stage.undo.hidden = stage.previousPrompt === null;
+  stage.undo.disabled = workflowBusy || anyAssistantBusy();
+}
+
+function updateAllAssistantControls() {
+  for (const stage of stages) {
+    updateAssistantControls(stage);
+  }
+}
+
+function setAssistantStatus(state, text, title = "") {
+  assistantReady = state === "ready";
+  elements.promptAssistantStatus.dataset.state = state;
+  elements.promptAssistantStatusText.textContent = text;
+  elements.promptAssistantStatus.title = title;
+  updateAllAssistantControls();
+}
+
+async function checkPromptAssistant() {
+  window.clearTimeout(assistantStatusTimer);
+  try {
+    const status = await api("/api/prompt-assistant/status");
+    if (!status.enabled) {
+      setAssistantStatus("disabled", "Qwen disabled", status.model);
+      return;
+    }
+    if (status.ready) {
+      setAssistantStatus("ready", "Qwen vision ready", status.model);
+      assistantStatusTimer = window.setTimeout(checkPromptAssistant, 15_000);
+      return;
+    }
+    setAssistantStatus("unavailable", "Qwen preparing…", `${status.model} · ${status.detail}`);
+  } catch (error) {
+    setAssistantStatus("unavailable", "Qwen unavailable", error.message);
+  }
+  assistantStatusTimer = window.setTimeout(checkPromptAssistant, 5_000);
+}
+
+function completedReference(stage) {
+  if (
+    !stage.inputStageId ||
+    latestJob?.status !== "completed" ||
+    !latestJob.images?.[stage.inputStageId]
+  ) {
+    return null;
+  }
+  return { jobId: latestJob.id, stageId: stage.inputStageId };
+}
+
+async function improvePrompt(stage) {
+  if (!assistantReady || workflowBusy || anyAssistantBusy()) {
+    return;
+  }
+  const original = stage.prompt.value.trim();
+  if (!original) {
+    stage.prompt.reportValidity();
+    return;
+  }
+  const inputStageId = stage.inputStageId;
+  const mode = inputStageId ? "edit" : "generate";
+  const image = completedReference(stage);
+  stage.assistantBusy = true;
+  stage.node.querySelector(".node-status").textContent = image
+    ? "Qwen is reading the connected image and improving this prompt…"
+    : "Qwen is improving this prompt…";
+  setBusy(workflowBusy);
+  try {
+    const result = await api("/api/prompt-assistant/rewrite", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mode, prompt: original, ...(image ? { image } : {}) }),
+    });
+    if (stage.inputStageId !== inputStageId) {
+      throw new Error("The image connection changed while Qwen was rewriting");
+    }
+    if (stage.prompt.value.trim() !== original) {
+      throw new Error("The prompt changed while Qwen was rewriting");
+    }
+    stage.previousPrompt = stage.prompt.value;
+    stage.prompt.value = result.prompt;
+    updateCounter(stage);
+    stage.node.querySelector(".node-status").textContent = result.usedVision
+      ? "Prompt improved with Qwen vision · Undo is available"
+      : "Prompt improved with Qwen · Undo is available";
+    toast(result.usedVision ? "Prompt improved with vision" : "Prompt improved");
+  } catch (error) {
+    stage.node.querySelector(".node-status").textContent = error.message;
+    toast("Qwen rewrite failed");
+  } finally {
+    stage.assistantBusy = false;
+    setBusy(workflowBusy);
+  }
+}
+
+function undoPrompt(stage) {
+  if (stage.previousPrompt === null || workflowBusy || anyAssistantBusy()) {
+    return;
+  }
+  stage.prompt.value = stage.previousPrompt;
+  stage.previousPrompt = null;
+  updateCounter(stage);
+  updateStageMode(stage);
+  updateAssistantControls(stage);
+  toast("Original prompt restored");
+}
+
 function refreshConnectionOptions() {
   stages.forEach((stage, index) => {
     const previous = stages.slice(0, index);
@@ -294,8 +412,12 @@ function updateWorkflowSummary() {
 }
 
 function addStage({ connectPrevious = true } = {}) {
-  if (workflowBusy || stages.length >= 8) {
-    toast(workflowBusy ? "Wait for the active workflow" : "Maximum 8 Klein nodes");
+  if (workflowBusy || anyAssistantBusy() || stages.length >= 8) {
+    toast(
+      workflowBusy || anyAssistantBusy()
+        ? "Wait for the active workflow"
+        : "Maximum 8 Klein nodes",
+    );
     return;
   }
   const id = `klein-${nextStageNumber}`;
@@ -308,6 +430,8 @@ function addStage({ connectPrevious = true } = {}) {
   const prompt = node.querySelector(".stage-prompt");
   const size = node.querySelector(".stage-size");
   const seed = node.querySelector(".stage-seed");
+  const improve = node.querySelector(".improve-prompt");
+  const undo = node.querySelector(".undo-prompt");
   seed.value = String(20260731 + stages.length);
   prompt.value = stages.length === 0
     ? "A realistic orange tabby cat sitting in a softly lit gray studio, full body, centered composition"
@@ -320,7 +444,11 @@ function addStage({ connectPrevious = true } = {}) {
     prompt,
     size,
     seed,
+    improve,
+    undo,
     inputStageId: connectPrevious ? stages.at(-1)?.id ?? null : null,
+    previousPrompt: null,
+    assistantBusy: false,
   };
   stages.push(stage);
   nextStageNumber += 1;
@@ -342,6 +470,8 @@ function addStage({ connectPrevious = true } = {}) {
   });
   node.querySelector(".remove-node").addEventListener("click", () => removeStage(stage.id));
   node.querySelector(".cancel-workflow").addEventListener("click", cancelWorkflow);
+  improve.addEventListener("click", () => void improvePrompt(stage));
+  undo.addEventListener("click", () => undoPrompt(stage));
   updateCounter(stage);
   refreshConnectionOptions();
   layoutNodes();
@@ -350,8 +480,8 @@ function addStage({ connectPrevious = true } = {}) {
 }
 
 function removeStage(id) {
-  if (workflowBusy) {
-    toast("Stop the active workflow first");
+  if (workflowBusy || anyAssistantBusy()) {
+    toast("Wait for the active workflow");
     return;
   }
   if (stages.length === 1) {
@@ -396,14 +526,15 @@ function workflowPayload() {
 
 function setBusy(busy) {
   workflowBusy = busy;
+  const promptBusy = anyAssistantBusy();
   for (const stage of stages) {
     const run = stage.node.querySelector(".run-workflow");
     const cancel = stage.node.querySelector(".cancel-workflow");
-    run.disabled = busy || !runtimeReady;
+    run.disabled = busy || promptBusy || !runtimeReady;
     run.classList.toggle("generating", busy);
     cancel.hidden = !busy;
   }
-  elements.addNode.disabled = busy || stages.length >= 8;
+  elements.addNode.disabled = busy || promptBusy || stages.length >= 8;
   elements.loading.hidden = !busy;
   window.clearInterval(loadingTimer);
   if (busy) {
@@ -420,6 +551,7 @@ function setBusy(busy) {
       elements.loadingText.textContent = messages[index];
     }, 1500);
   }
+  updateAllAssistantControls();
 }
 
 function renderStageTabs(job = latestJob) {
@@ -745,4 +877,5 @@ addStage({ connectPrevious: false });
 setActiveStage(stages[0].id);
 updateZoom();
 void checkRuntime();
+void checkPromptAssistant();
 void loadLoras();

@@ -1273,6 +1273,46 @@ dialog::backdrop {
   pointer-events: auto;
 }
 
+.assistant-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  margin-left: 6px;
+  padding: 0 9px;
+  border: 1px solid #e1dbea;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.84);
+  color: #817987;
+  font-size: 9px;
+  font-weight: 720;
+  white-space: nowrap;
+}
+
+.assistant-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--amber);
+  box-shadow: 0 0 0 3px rgba(211, 151, 62, 0.12);
+}
+
+.assistant-status[data-state="ready"] {
+  border-color: #cce8d7;
+  color: #357a50;
+}
+
+.assistant-status[data-state="ready"] .assistant-dot {
+  background: var(--green);
+  box-shadow: 0 0 0 3px rgba(67, 157, 104, 0.12);
+}
+
+.assistant-status[data-state="unavailable"] .assistant-dot,
+.assistant-status[data-state="disabled"] .assistant-dot {
+  background: #b4acb8;
+  box-shadow: 0 0 0 3px rgba(126, 117, 133, 0.1);
+}
+
 .add-node-button:hover:not(:disabled) {
   background: var(--purple-soft);
 }
@@ -1370,6 +1410,60 @@ dialog::backdrop {
   font-size: 8px;
 }
 
+.prompt-tools {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 5px;
+}
+
+.improve-prompt,
+.undo-prompt {
+  min-height: 22px;
+  padding: 0 7px;
+  border: 1px solid #ddd2f4;
+  border-radius: 7px;
+  background: #fff;
+  color: var(--purple-strong);
+  font-size: 8px;
+  font-weight: 780;
+}
+
+.improve-prompt:hover:not(:disabled),
+.undo-prompt:hover:not(:disabled) {
+  background: var(--purple-soft);
+}
+
+.improve-prompt:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
+.improve-prompt.busy {
+  color: transparent;
+  position: relative;
+}
+
+.improve-prompt.busy::after {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--purple);
+  content: "◌";
+  animation: spin 0.8s linear infinite;
+}
+
+.undo-prompt {
+  border-color: #e3dfe7;
+  color: #77707d;
+}
+
+.prompt-tools .prompt-counter {
+  min-width: 48px;
+  text-align: right;
+}
+
 .edit-mode .connection-field {
   border-color: #cce8d7;
   background: linear-gradient(145deg, #fbfffc, #f0faf4);
@@ -1415,4 +1509,10 @@ dialog::backdrop {
   flex: 1 0 auto;
   min-width: 92px;
   padding: 0 9px;
+}
+
+@media (max-width: 800px) {
+  .assistant-status {
+    display: none;
+  }
 }

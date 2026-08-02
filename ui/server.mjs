@@ -10,6 +10,10 @@ import {
   runtimeReadiness,
 } from "./lib/runtime.mjs";
 import { LoraStore } from "./lib/lora-store.mjs";
+import {
+  PromptAssistant,
+  resolvePromptAssistantConfig,
+} from "./lib/prompt-assistant.mjs";
 
 const UI_ROOT = path.dirname(fileURLToPath(import.meta.url));
 const MAX_BODY_BYTES = 64 * 1024;
@@ -77,6 +81,7 @@ export function createHttpServer({
   manager,
   readiness = runtimeReadiness,
   loraStore,
+  promptAssistant,
   publicDir = path.join(UI_ROOT, "public"),
 } = {}) {
   const runtimeConfig = config ?? resolveRuntimeConfig({ uiRoot: UI_ROOT });
@@ -90,6 +95,15 @@ export function createHttpServer({
       maxLoraBytes: runtimeConfig.maxLoraBytes,
       loraDownloadTimeoutMs: runtimeConfig.loraDownloadTimeoutMs,
     });
+  const assistant =
+    promptAssistant ?? new PromptAssistant(resolvePromptAssistantConfig());
+  const activeJobStatuses = new Set(["queued", "running", "cancelling"]);
+  let assistantBusy = false;
+  let nativeStartReservations = 0;
+
+  const nativeWorkflowActive = () =>
+    nativeStartReservations > 0 ||
+    jobs.list().some((job) => activeJobStatuses.has(job.status));
 
   const server = http.createServer(async (request, response) => {
     try {
@@ -111,6 +125,46 @@ export function createHttpServer({
         });
         return;
       }
+      if (request.method === "GET" && pathname === "/api/prompt-assistant/status") {
+        sendJson(response, 200, await assistant.status());
+        return;
+      }
+      if (request.method === "POST" && pathname === "/api/prompt-assistant/rewrite") {
+        if (assistantBusy || nativeWorkflowActive()) {
+          sendError(response, 409, "wait for the active GPU task before improving a prompt");
+          return;
+        }
+        assistantBusy = true;
+        try {
+          const body = await readJsonBody(request);
+          let imagePath = null;
+          if (body.image != null) {
+            if (
+              typeof body.image !== "object" ||
+              Array.isArray(body.image) ||
+              typeof body.image.jobId !== "string" ||
+              typeof body.image.stageId !== "string"
+            ) {
+              throw new TypeError("prompt rewrite image must identify a completed job stage");
+            }
+            imagePath = jobs.imagePath(body.image.jobId, body.image.stageId);
+            if (!imagePath) {
+              throw new TypeError("prompt rewrite reference image is not available");
+            }
+          }
+          sendJson(
+            response,
+            200,
+            await assistant.rewrite(
+              { mode: body.mode, prompt: body.prompt },
+              { imagePath },
+            ),
+          );
+        } finally {
+          assistantBusy = false;
+        }
+        return;
+      }
       if (request.method === "POST" && pathname === "/api/loras") {
         sendJson(response, 201, {
           lora: await loras.download(await readJsonBody(request)),
@@ -119,16 +173,25 @@ export function createHttpServer({
         return;
       }
       if (request.method === "POST" && pathname === "/api/jobs") {
-        const status = await readiness(runtimeConfig);
-        if (!status.ready) {
-          sendJson(response, 503, {
-            error: "CPDif binary or model assets are not ready",
-            status,
-          });
+        if (assistantBusy) {
+          sendError(response, 409, "wait for prompt improvement to finish before starting CPDif");
           return;
         }
-        const job = jobs.create(await readJsonBody(request));
-        sendJson(response, 202, job);
+        nativeStartReservations += 1;
+        try {
+          const status = await readiness(runtimeConfig);
+          if (!status.ready) {
+            sendJson(response, 503, {
+              error: "CPDif binary or model assets are not ready",
+              status,
+            });
+            return;
+          }
+          const job = jobs.create(await readJsonBody(request));
+          sendJson(response, 202, job);
+        } finally {
+          nativeStartReservations -= 1;
+        }
         return;
       }
 
@@ -198,7 +261,13 @@ export function createHttpServer({
   });
 
   server.on("close", () => jobs.shutdown?.());
-  return { server, config: runtimeConfig, manager: jobs, loraStore: loras };
+  return {
+    server,
+    config: runtimeConfig,
+    manager: jobs,
+    loraStore: loras,
+    promptAssistant: assistant,
+  };
 }
 
 export async function startServer(options = {}) {

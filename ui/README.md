@@ -25,6 +25,24 @@ flag. An adjacent Generate → Edit pair with matching dimensions is fused into
 one native `generate-edit` command so the model context is loaded once. Other
 roots run as `generate`; connected stages run as `edit --reference-image`.
 
+Each node also has an optional **Improve** action backed by a local Ollama
+vision model. Generate prompts are rewritten from text. Edit prompts also send
+the completed connected stage image when one is available, so the rewrite can
+name visible subjects and preservation constraints. The original prompt is
+retained behind **Undo**. Prompt assistance is explicit, never runs during a
+native workflow, and never blocks Generate or Edit when Ollama is unavailable.
+
+The system prompt summarizes Black Forest Labs' official
+[FLUX.2 prompting guide](https://docs.bfl.ai/guides/prompting_guide_flux2) and
+[single-reference editing guide](https://docs.bfl.ai/guides/prompting_editing_single_reference):
+important concepts come first, prompts describe what should appear instead of
+negative clauses, and edit instructions state both the change and what must
+stay fixed. The configured default is the community
+[`lukey03/Qwen3.5-9B-abliterated`](https://huggingface.co/lukey03/Qwen3.5-9B-abliterated)
+Ollama vision variant requested for this project. Abliteration removes refusal
+behavior; it is not a vision-quality enhancement, so the model remains
+configurable and the official `Qwen/Qwen3.5-9B` can be substituted.
+
 The FLUX node also includes a LoRA asset downloader with adjacent Name and HTTPS
 URL fields. Downloads are streamed into `CPDIF_LORA_DIR` (default:
 `$CPDIF_WORKDIR/loras`), validated as safetensors, limited to 4 GiB by default,
@@ -65,9 +83,25 @@ CPDIF_VAE=/path/to/flux2-vae.safetensors \
 CPDIF_UI_DATA_DIR=/path/to/job-output \
 CPDIF_LORA_DIR=/path/to/loras \
 CPDIF_UI_MAX_LORA_BYTES=4294967296 \
+CPDIF_PROMPT_ASSISTANT_ENABLED=1 \
+CPDIF_PROMPT_ASSISTANT_URL=http://127.0.0.1:11434 \
+CPDIF_PROMPT_ASSISTANT_MODEL=lukey03/qwen3.5-9b-abliterated-vision \
 CPDIF_UI_PORT=4173 \
 npm start
 ```
+
+For a local Ollama installation, start `ollama serve` and pull the configured
+model once:
+
+```bash
+ollama pull lukey03/qwen3.5-9b-abliterated-vision
+```
+
+Only loopback HTTP origins are accepted. Requests set `keep_alive: 0`, which
+unloads Qwen immediately after the rewrite and frees GPU memory before CPDif
+starts. The Colab launcher installs and downloads the assistant in the
+background; the Qwen badge turns green when it is ready. The first uncached
+Colab launch downloads roughly 6.1 GB for the vision quantization.
 
 Set `CPDIF_UI_MAX_VRAM=8` explicitly for an A100 when `nvidia-smi` is not
 available during Node startup. Set it to an empty value on RTX PRO 6000.

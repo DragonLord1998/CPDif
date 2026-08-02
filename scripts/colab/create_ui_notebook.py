@@ -11,7 +11,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_OUTPUT = REPO_ROOT / "notebooks" / "CPDif_Klein_9B_UI_Colab.ipynb"
 CPDIF_REPOSITORY = "https://github.com/DragonLord1998/CPDif.git"
-CPDIF_REVISION = "9a9b53dc2c4276dc552cf237af08b2aff0a19511"
+CPDIF_REVISION = "b12442dfddebe65858a6d9790a59f884027e63a0"
 UI_PORT = 4173
 
 
@@ -102,6 +102,9 @@ CPDIF_WORKDIR = Path("/content/cpdif-work")
 CPDIF_UI_PORT = {UI_PORT}
 CPDIF_UI_LOG = CPDIF_WORKDIR / "cpdif-ui.log"
 CPDIF_UI_PID = CPDIF_WORKDIR / "cpdif-ui.pid"
+CPDIF_PROMPT_ASSISTANT_MODEL = "lukey03/qwen3.5-9b-abliterated-vision"
+CPDIF_PROMPT_SETUP_LOG = CPDIF_WORKDIR / "qwen-prompt-assistant-setup.log"
+CPDIF_OLLAMA_LOG = CPDIF_WORKDIR / "ollama.log"
 
 
 def run(command, *, cwd=None, env=None):
@@ -214,6 +217,32 @@ def stop_previous_ui():
     CPDIF_UI_PID.unlink(missing_ok=True)
 
 
+def start_prompt_assistant_setup(env):
+    prompt_env = env.copy()
+    prompt_env.update(
+        {{
+            "CPDIF_PROMPT_ASSISTANT_MODEL": CPDIF_PROMPT_ASSISTANT_MODEL,
+            "CPDIF_PROMPT_ASSISTANT_LOG": str(CPDIF_OLLAMA_LOG),
+            "OLLAMA_HOST": "127.0.0.1:11434",
+            "OLLAMA_MODELS": str(CPDIF_WORKDIR / "models" / "ollama"),
+        }}
+    )
+    CPDIF_PROMPT_SETUP_LOG.parent.mkdir(parents=True, exist_ok=True)
+    with CPDIF_PROMPT_SETUP_LOG.open("w", encoding="utf-8") as log_file:
+        process = subprocess.Popen(
+            ["bash", CPDIF_REPO_DIR / "scripts/colab/11_prepare_prompt_assistant.sh"],
+            env=prompt_env,
+            stdout=log_file,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+        )
+    print(
+        "Preparing the optional local Qwen vision prompt assistant in the background. "
+        f"Progress: {{CPDIF_PROMPT_SETUP_LOG}}"
+    )
+    return process
+
+
 def start_ui(architecture):
     stop_previous_ui()
     build_dir = "build-a100" if architecture == "80" else "build-sm120"
@@ -230,6 +259,9 @@ def start_ui(architecture):
             "CPDIF_UI_HOST": "127.0.0.1",
             "CPDIF_UI_PORT": str(CPDIF_UI_PORT),
             "CPDIF_UI_MAX_VRAM": "8" if architecture == "80" else "",
+            "CPDIF_PROMPT_ASSISTANT_ENABLED": "1",
+            "CPDIF_PROMPT_ASSISTANT_URL": "http://127.0.0.1:11434",
+            "CPDIF_PROMPT_ASSISTANT_MODEL": CPDIF_PROMPT_ASSISTANT_MODEL,
         }}
     )
     CPDIF_UI_LOG.parent.mkdir(parents=True, exist_ok=True)
@@ -321,6 +353,7 @@ aux_model_env["MODEL_COMPONENTS"] = "text_encoder,vae"
 run(["bash", CPDIF_REPO_DIR / "scripts/model/download_model.sh"], env=aux_model_env)
 run(["bash", CPDIF_REPO_DIR / "scripts/model/download_kv_q8_transformer.sh"], env=build_env)
 
+prompt_setup_process = start_prompt_assistant_setup(build_env)
 ui_process = start_ui(architecture)
 status = wait_until_ready(ui_process)
 CPDIF_PROXY_URL = reserve_proxy_if_needed()
@@ -328,6 +361,7 @@ CPDIF_PROXY_URL = reserve_proxy_if_needed()
 print("\\nCPDif Studio is ready:")
 print(CPDIF_PROXY_URL)
 print("This private proxy URL works only while this Colab runtime remains connected.")
+print("Qwen downloads in the background; its studio badge turns green when vision prompting is ready.")
 safe_url = html.escape(CPDIF_PROXY_URL, quote=True)
 display(
     HTML(

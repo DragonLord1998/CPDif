@@ -7,6 +7,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 GENERATOR_PATH = REPO_ROOT / "scripts" / "colab" / "create_ui_notebook.py"
 NOTEBOOK_PATH = REPO_ROOT / "notebooks" / "CPDif_Klein_9B_UI_Colab.ipynb"
+PROMPT_ASSISTANT_SCRIPT = REPO_ROOT / "scripts" / "colab" / "11_prepare_prompt_assistant.sh"
 
 
 def load_generator():
@@ -67,6 +68,22 @@ class ColabUiNotebookTests(unittest.TestCase):
         self.assertIn("serve_kernel_port_as_iframe", source)
         self.assertNotIn("shell=True", source)
         self.assertNotIn("cloudflare", source.lower())
+
+    def test_second_cell_prepares_the_local_qwen_vision_assistant_in_background(self):
+        source = self.sources[1]
+        self.assertIn("lukey03/qwen3.5-9b-abliterated-vision", source)
+        self.assertIn("11_prepare_prompt_assistant.sh", source)
+        self.assertIn("start_prompt_assistant_setup", source)
+        self.assertIn('"CPDIF_PROMPT_ASSISTANT_URL": "http://127.0.0.1:11434"', source)
+        self.assertIn("Qwen downloads in the background", source)
+
+    def test_prompt_assistant_setup_is_loopback_only_and_unloads_between_requests(self):
+        source = PROMPT_ASSISTANT_SCRIPT.read_text(encoding="utf-8")
+        self.assertIn("OLLAMA_HOST=\"${OLLAMA_HOST:-127.0.0.1:11434}\"", source)
+        self.assertIn("OLLAMA_KEEP_ALIVE=0", source)
+        self.assertIn('OLLAMA_MIN_VERSION="0.17.1"', source)
+        self.assertIn("ollama pull", source)
+        self.assertNotIn("0.0.0.0", source)
 
     def test_notebook_does_not_print_or_pass_hugging_face_token_on_command_line(self):
         source = self.sources[1]
