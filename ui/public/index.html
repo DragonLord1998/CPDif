@@ -8,7 +8,7 @@
       content="A visual node canvas for CPDif FLUX.2 Klein 9B-KV image generation and editing."
     />
     <title>Klein Studio · CPDif</title>
-    <link rel="stylesheet" href="/styles.css?v=20260802.7" />
+    <link rel="stylesheet" href="/styles.css?v=20260802.8" />
   </head>
   <body>
     <header class="app-header">
@@ -40,6 +40,10 @@
       <div class="canvas-toolbar">
         <span class="canvas-title">Generation canvas</span>
         <span class="tip">No image wire = Generate · Image wire = Edit</span>
+        <span id="prompt-assistant-status" class="assistant-status" data-state="checking" role="status">
+          <span class="assistant-dot" aria-hidden="true"></span>
+          <span class="assistant-status-text">Qwen checking…</span>
+        </span>
         <button id="add-klein-node" class="add-node-button" type="button">
           ＋ Klein node
         </button>
@@ -168,7 +172,11 @@
           </label>
           <div class="field-label">
             <span class="prompt-label">Describe the image</span>
-            <span class="prompt-counter">0 / 4000</span>
+            <span class="prompt-tools">
+              <button class="improve-prompt" type="button" disabled>✦ Improve</button>
+              <button class="undo-prompt" type="button" hidden>Undo</button>
+              <span class="prompt-counter">0 / 4000</span>
+            </span>
           </div>
           <div class="prompt-wrap">
             <textarea class="stage-prompt" maxlength="4000" required></textarea>
@@ -214,6 +222,6 @@
     </dialog>
     <div class="toast" id="toast" role="status">Done</div>
 
-    <script type="module" src="/app.js?v=20260802.6"></script>
+    <script type="module" src="/app.js?v=20260802.9"></script>
   </body>
 </html>

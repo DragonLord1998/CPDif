@@ -30,7 +30,8 @@ not depend on ComfyUI, a notebook UI, a tunnel, or a Python inference runtime.
   residency, and streaming state.
 - Dependency-free Node 20+ UI with automatic Generate/Edit node inference,
   multi-stage outputs, a serialized GPU queue, cancellation, readiness checks,
-  native logs, and telemetry timings.
+  native logs, telemetry timings, and optional local Qwen vision prompt
+  rewriting grounded in Black Forest Labs' prompting guidance.
 - Offline CPU build mode for repository/CLI tests without model weights.
 
 This is the integration baseline, not yet a clean-room implementation of every
@@ -54,6 +55,8 @@ The generated notebook is
 Cell 1 reserves the private, session-bound Colab proxy URL. Cell 2 restores the
 published `sm80` or `sm120` build cache, verifies the native build and model
 assets, starts the Node UI, and prints plus embeds the ready URL. The launcher
+also prepares the optional Qwen3.5 9B Ollama vision assistant in the background;
+the UI remains usable while its separate model download completes. The launcher
 rejects other GPU architectures because no validated release cache is
 published for them.
 
@@ -276,7 +279,8 @@ layouts, queues one GPU job at a time, and always launches the exact four-step
 Klein 9B-KV path. Add up to eight Klein nodes: no incoming image connection
 means Generate, while a connection to an earlier Klein output means Edit. The
 server fuses a compatible Generate → Edit pair into one native context. No
-`npm install` is required. See
+`npm install` is required. Each node can optionally improve its prompt through
+the loopback-only Qwen vision assistant and restore the original with Undo. See
 [`ui/README.md`](ui/README.md) for path overrides and validation.
 
 ## Offline validation build
