@@ -78,3 +78,60 @@ Telemetry is schema 3 for this pass. The benchmark's persistent steady-state
 measurement sums generation, in-memory reference handling, and lossless PNG
 write stages after the first request; model load is excluded because the
 context remains resident.
+
+## Klein 9B-KV reference cache
+
+The dedicated Klein 9B-KV Q8 checkpoint was measured against the standard Q8
+checkpoint in the same session on each GPU. Both profiles used three persistent
+1024x1024 four-step requests at CFG 1.0; the warm request was discarded.
+
+| GPU | Standard edit | KV edit | Edit speedup | Standard pair | KV pair | Pair speedup | KV peak VRAM |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| A100-SXM4-40GB (`sm80`) | 12.497 s | 9.332 s | 1.339x (25.33%) | 19.022 s | 15.884 s | 1.198x (16.50%) | 33,760 MiB |
+| RTX PRO 6000 Blackwell (`sm120`) | 5.370 s | 3.780 s | 1.421x (29.61%) | 7.758 s | 6.172 s | 1.257x (20.44%) | 34,547 MiB |
+
+The A100 run uses an 8 GiB graph-allocation limit to segment the graph while
+keeping the reference K/V tensors persistent on CUDA. The RTX has enough VRAM
+for the normal full-graph path. Compared with the standard checkpoint, the KV
+path added 4,096 MiB peak VRAM on A100 and 4,738 MiB on RTX.
+
+Every standard and KV request produced a valid, distinct 1024x1024 PNG and
+valid telemetry. The standard outputs matched the historical GPU-specific
+hashes exactly. Manual review of representative outputs on both GPUs confirmed
+a clean orange tabby and a real same-cat edit with a fitted black suit, white
+shirt, and tie; no blank or repeated-output artifact passed the final gate.
+
+```bash
+bash scripts/colab/09_klein_kv_validation.sh
+```
+
+The result is written to
+`/content/cpdif-work/outputs/klein-kv/<gpu>/gpu-result.json`. Exact samples,
+hashes, cache checksums, hardware details, and visual acceptance are recorded
+in `docs/benchmarks/2026-08-02-klein-kv.json`.
+
+### Cached-attention copy elision
+
+The next exact pass removes redundant Q/K/V concatenation copies on cached
+denoising steps. It follows the same optimization direction as SGLang's
+attention device-to-device copy elimination and llama.cpp/ggml's persistent KV
+buffers: reuse stable tensors and avoid materializing intermediate attention
+layouts. The graph still uses the official Klein 9B-KV step-zero extraction and
+does not skip denoising work.
+
+| GPU | Previous KV edit | Copy-elided KV edit | Delta | Same-session standard | Edit speedup | Peak VRAM |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| A100-SXM4-40GB (`sm80`) | 9.332 s | 9.262 s | -70 ms (-0.75%) | 12.508 s | 1.351x (25.95%) | 33,760 MiB |
+| RTX PRO 6000 Blackwell (`sm120`) | 3.780 s | 3.742 s | -38 ms (-1.01%) | 5.386 s | 1.439x (30.52%) | 34,547 MiB |
+
+The steady pair also improved from 15.884 to 15.800 seconds on A100 and from
+6.172 to 6.140 seconds on RTX. Peak VRAM was unchanged. Native CTest (3/3), the
+38-test Python suite, historical standard-output hashes, telemetry, output
+diversity, and manual visual review passed on both GPUs. These are two-sample
+steady medians from one exact-commit session per GPU; the small delta over the
+previous KV pass should be treated as a measured checkpoint rather than a claim
+about long-run variance.
+
+The exact candidate is commit `60385d388fea29820ac2c9b7bd0d613d3463195f`.
+Full results and the architecture-specific release-cache checksums are recorded
+in `docs/benchmarks/2026-08-02-klein-kv-copy-elision.json`.

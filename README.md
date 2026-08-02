@@ -1,9 +1,10 @@
 # CPDif
 
-CPDif is a ComfyUI-free C++/CUDA command-line runtime for
+CPDif is a ComfyUI-free C++/CUDA runtime for
 `black-forest-labs/FLUX.2-klein-9B`. It uses the stable C API from a pinned
-`stable-diffusion.cpp` revision and keeps the application boundary independent
-from notebooks, Python inference frameworks, web servers, and future UI code.
+`stable-diffusion.cpp` revision. The native application boundary remains
+independent from notebooks and Python inference frameworks; an optional small
+Node UI wraps the same CLI contract without changing the engine.
 
 The engine is built and visually validated through the Google Colab CLI on an
 NVIDIA A100 40GB and an NVIDIA RTX PRO 6000 Blackwell Server Edition. It does
@@ -18,6 +19,8 @@ not depend on ComfyUI, a notebook UI, a tunnel, or a Python inference runtime.
   context-reuse telemetry, and no model reload between requests.
 - Opt-in EasyCache, DBCache, TaylorSeer, Cache-DiT, and Spectrum acceleration
   through the pinned native backend. The exact path remains the default.
+- Native FLUX.2 Klein 9B-KV reference-attention caching through a pinned,
+  reproducible stable-diffusion.cpp patch and the dedicated KV checkpoint.
 - Native CUDA builds for A100 `sm80` and RTX PRO 6000 Blackwell `sm120`.
 - Automatic parameter residency: the checksum-pinned Q8 profile stays on CUDA
   when model size plus an 8 GiB safety reserve fits; otherwise it streams.
@@ -25,6 +28,8 @@ not depend on ComfyUI, a notebook UI, a tunnel, or a Python inference runtime.
   encoder, and FLUX.2 VAE downloads.
 - Lossless low-latency PNG output and telemetry for load, generation, encoding,
   residency, and streaming state.
+- Dependency-free Node 20+ UI with a serialized GPU queue, cancellation,
+  readiness checks, native logs, telemetry timings, and source/edit previews.
 - Offline CPU build mode for repository/CLI tests without model weights.
 
 This is the integration baseline, not yet a clean-room implementation of every
@@ -33,6 +38,23 @@ execution path; differential tensor tests and purpose-built kernels can replace
 backend pieces incrementally without changing the CLI contract.
 
 ## Colab GPU build and validation
+
+For the browser UI, open the
+[public two-cell Colab launcher](https://colab.research.google.com/gist/DragonLord1998/24227eeab85ac10c3df4dc3991c81850/cpdif_klein_9b_ui_colab.ipynb)
+or view its [public Gist source](https://gist.github.com/DragonLord1998/24227eeab85ac10c3df4dc3991c81850).
+The repository copy can be regenerated deterministically with:
+
+```bash
+python3 scripts/colab/create_ui_notebook.py
+```
+
+The generated notebook is
+[`notebooks/CPDif_Klein_9B_UI_Colab.ipynb`](notebooks/CPDif_Klein_9B_UI_Colab.ipynb).
+Cell 1 reserves the private, session-bound Colab proxy URL. Cell 2 restores the
+published `sm80` or `sm120` build cache, verifies the native build and model
+assets, starts the Node UI, and prints plus embeds the ready URL. The launcher
+rejects other GPU architectures because no validated release cache is
+published for them.
 
 On either supported Colab GPU, the complete public Q8 path is:
 
@@ -88,7 +110,24 @@ The archive contains the exact Ninja build directory, compressed `ccache`, and
 a toolchain manifest. Keep it outside Git and restore it only through
 `scripts/colab/05_restore_cache.sh`; incompatible compute capability, CUDA,
 compiler, upstream, paths, or source ancestry is rejected. Legacy A100 cache
-manifests remain supported.
+manifests remain supported. Manifest schema 3 also pins the SHA-256 of CPDif's
+upstream patch, so a binary built from a different patch cannot be restored.
+
+Published schema-3 caches can be restored directly from the
+`gpu-build-cache-v4` GitHub release after installing dependencies and preparing
+the pinned upstream source:
+
+```bash
+bash scripts/colab/00_install_build_deps.sh
+bash scripts/colab/01_prepare_upstream.sh
+bash scripts/colab/10_restore_release_cache.sh
+bash scripts/colab/02_build_cuda.sh
+```
+
+The final build command is intentionally retained: it verifies the restored
+manifest, performs only necessary incremental compilation, and runs CTest.
+Release assets are architecture-specific (`sm80` and `sm120`) and include the
+native build tree plus compressed `ccache`; they never include model weights.
 
 Run the model download and smoke test after accepting the gated model license,
 adding a read-only `HF_TOKEN` Colab secret, and loading it into kernel memory
@@ -192,10 +231,49 @@ are model- and step-count-sensitive. Run
 `scripts/colab/08_sglang_diffusion_validation.sh` to reproduce the complete
 exact, persistent, and cache-mode matrix on either supported Colab GPU.
 
+For exact reference-attention reuse, download the dedicated Klein 9B-KV Q8
+checkpoint and add `--klein-kv-cache`:
+
+```bash
+bash scripts/model/download_kv_q8_transformer.sh
+cpdif generate-edit \
+  --transformer /models/flux-2-klein-9b-kv-Q8_0.gguf \
+  --text-encoder /models/qwen_3_8b.safetensors \
+  --vae /models/flux2-vae.safetensors \
+  --klein-kv-cache --cfg-scale 1.0 --steps 4 \
+  --prompt "a realistic orange tabby cat in a gray studio" \
+  --edit-prompt "Keep the same cat and dress it in a fitted black suit" \
+  --output cat.png --edited-output cat-in-suit.png
+```
+
+This flag is valid only with the dedicated `FLUX.2-klein-9B-KV` weights and
+CFG 1.0, without layer streaming or a diffusion cache. Do not enable it with
+the standard Klein 9B checkpoint. Run
+`scripts/colab/09_klein_kv_validation.sh` for the pinned GPU benchmark. The
+validated KV path reduces steady-state edit latency by 25.33% on A100 40GB and
+29.61% on RTX PRO 6000, with visually reviewed same-cat edits. See
+[the benchmark record](docs/benchmarks/2026-08-02-klein-kv.json) and
+[the Klein KV-cache implementation notes](docs/KLEIN_KV_CACHE.md).
+
 `scripts/colab/06_cat_and_suit.sh` runs the required two-image acceptance path:
 it uses `cpdif generate-edit` to generate one cat, write its lossless PNG, and
 pass the same RGB pixels directly to the edit stage without decoding the PNG or
 destroying and recreating the inference context.
+
+## Node UI
+
+After the GPU build and model downloads are ready on the same A100 or RTX PRO
+6000 host, start the optional UI:
+
+```bash
+cd ui
+CPDIF_WORKDIR=/content/cpdif-work CPDIF_UI_HOST=0.0.0.0 npm start
+```
+
+Open port `4173`. The server detects the standard `build-a100` and `build-sm120`
+layouts, queues one GPU job at a time, and always launches the exact four-step
+Klein 9B-KV path. No `npm install` is required. See
+[`ui/README.md`](ui/README.md) for path overrides and validation.
 
 ## Offline validation build
 

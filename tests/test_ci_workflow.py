@@ -23,6 +23,14 @@ class CIWorkflowTests(unittest.TestCase):
 
         self.assertIn("python -m unittest discover -s tests", workflow_text)
 
+    def test_ci_runs_node_ui_tests(self):
+        """keeps the dependency-free Node UI covered in pull requests."""
+        workflow_text = WORKFLOW.read_text(encoding="utf-8")
+
+        self.assertIn("actions/setup-node@v4", workflow_text)
+        self.assertIn("working-directory: ui", workflow_text)
+        self.assertIn("run: npm test", workflow_text)
+
 
 if __name__ == "__main__":
     unittest.main()

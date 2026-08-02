@@ -119,6 +119,20 @@ CUDA/compiler, upstream revision, fixed Colab paths, or project ancestry does
 not match. The version-2 format also supports `sm120` RTX PRO 6000 caches;
 existing version-1 A100 40GB archives remain accepted on their original target.
 
+For the current schema-3 cache, no manual upload is required. The public GitHub
+release contains separate `sm80` and `sm120` archives:
+
+```bash
+bash scripts/colab/00_install_build_deps.sh
+bash scripts/colab/01_prepare_upstream.sh
+bash scripts/colab/10_restore_release_cache.sh
+bash scripts/colab/02_build_cuda.sh
+```
+
+Schema 3 additionally binds the cache to CPDif's stable-diffusion.cpp patch
+hash. An incompatible release asset is rejected and can safely fall back to a
+normal build.
+
 ## RTX PRO 6000 final gate
 
 The Colab CLI exposes the RTX PRO 6000 runtime as `G4`:

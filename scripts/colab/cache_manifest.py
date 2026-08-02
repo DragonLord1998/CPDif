@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -21,6 +22,14 @@ def cuda_architecture(compute_capability: str) -> str:
     return architecture
 
 
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def live_manifest(
     repo_dir: Path,
     work_dir: Path,
@@ -36,9 +45,12 @@ def live_manifest(
     if len(gpu_fields) != 4:
         raise ValueError("expected exactly one GPU from nvidia-smi")
     return {
-        "schema_version": 2,
+        "schema_version": 3,
         "project_commit": output("git", "rev-parse", "HEAD", cwd=repo_dir),
         "upstream_commit": output("git", "rev-parse", "HEAD", cwd=upstream_dir),
+        "upstream_patch_sha256": sha256_file(
+            repo_dir / "patches" / "stable-diffusion-klein-kv-cache.patch"
+        ),
         "repo_dir": str(repo_dir),
         "work_dir": str(work_dir),
         "build_dir_name": build_dir.name,
@@ -81,9 +93,11 @@ def validate(args: argparse.Namespace) -> int:
     if legacy_a100:
         live["schema_version"] = 1
         live.pop("build_dir_name", None)
+        live.pop("upstream_patch_sha256", None)
     exact_fields = (
         "schema_version",
         "upstream_commit",
+        "upstream_patch_sha256",
         "repo_dir",
         "work_dir",
         "cuda_architectures",

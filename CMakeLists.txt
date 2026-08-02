@@ -35,6 +35,8 @@ endif()
 
 set(CPDIF_ENGINE_SOURCES src/engine_stub.cpp)
 set(CPDIF_HAS_NATIVE_BACKEND OFF)
+set(CPDIF_SDCXX_PATCH "${CMAKE_CURRENT_SOURCE_DIR}/patches/stable-diffusion-klein-kv-cache.patch")
+set(CPDIF_SDCXX_PATCH_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/cmake/ApplyStableDiffusionPatch.cmake")
 
 if(NOT CPDIF_OFFLINE)
   set(SD_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
@@ -52,6 +54,17 @@ if(NOT CPDIF_OFFLINE)
     if(NOT EXISTS "${CPDIF_SDCXX_SOURCE_DIR}/CMakeLists.txt")
       message(FATAL_ERROR "CPDIF_SDCXX_SOURCE_DIR does not contain stable-diffusion.cpp")
     endif()
+    execute_process(
+      COMMAND
+        "${CMAKE_COMMAND}"
+        -DSOURCE_DIR=${CPDIF_SDCXX_SOURCE_DIR}
+        -DPATCH_FILE=${CPDIF_SDCXX_PATCH}
+        -P ${CPDIF_SDCXX_PATCH_SCRIPT}
+      RESULT_VARIABLE CPDIF_SDCXX_PATCH_RESULT
+    )
+    if(NOT CPDIF_SDCXX_PATCH_RESULT EQUAL 0)
+      message(FATAL_ERROR "Failed to apply the CPDif stable-diffusion.cpp patch")
+    endif()
     set(stable_diffusion_SOURCE_DIR "${CPDIF_SDCXX_SOURCE_DIR}")
     add_subdirectory("${CPDIF_SDCXX_SOURCE_DIR}" "${CMAKE_BINARY_DIR}/_deps/stable-diffusion-build")
   else()
@@ -62,6 +75,11 @@ if(NOT CPDIF_OFFLINE)
       GIT_TAG "${CPDIF_SDCXX_GIT_TAG}"
       GIT_SUBMODULES ggml
       GIT_SUBMODULES_RECURSE TRUE
+      PATCH_COMMAND
+        "${CMAKE_COMMAND}"
+        -DSOURCE_DIR=<SOURCE_DIR>
+        -DPATCH_FILE=${CPDIF_SDCXX_PATCH}
+        -P ${CPDIF_SDCXX_PATCH_SCRIPT}
     )
     FetchContent_MakeAvailable(stable_diffusion)
   endif()

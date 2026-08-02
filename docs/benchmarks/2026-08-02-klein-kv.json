@@ -1,0 +1,106 @@
+{
+  "artifacts": {
+    "kv_transformer_sha256": "94d7a02ac18b50b2c751c6e2ee82c53a338ab233338700330a7797b6c959e397",
+    "standard_transformer_sha256": "67ca777c7aa2d6a0d63d4a7564f823c63af88e9688643df727e1867789062982",
+    "text_encoder_sha256": "f0ff9239d56269ca1d05e5f86da6a79fac111af464955681f11c7ab0ec5ef6c1",
+    "upstream_patch_sha256": "ae2f3ce16c62b03a3f47b29ecf6937a83f33487eec72617cbf5cdb05080927c3",
+    "vae_sha256": "868fe7b343cc8f3a19dbcfcafbc3d5f888802be3f89bd81b65b3621a066ce8f3"
+  },
+  "build_caches": {
+    "sm80": {
+      "asset": "cpdif-gpu-build-cache-v3-sm80.tar.zst",
+      "sha256": "ce9d29f5b404be1686ae6aafc2c8d52b76f8409ff271f0d53cdb1179218213fd"
+    },
+    "sm120": {
+      "asset": "cpdif-gpu-build-cache-v3-sm120.tar.zst",
+      "sha256": "e8ab1715bc49d71c9a6a382a66e6fc4f2e4bea722040bf499091725f9b0dfa86"
+    }
+  },
+  "gpu_results": {
+    "a100_40gb": {
+      "comparison": {
+        "edit_latency_reduction_percent": 25.33,
+        "edit_speedup": 1.3392,
+        "historical_standard_persistent_pair_ms_median": 18858,
+        "pair_latency_reduction_percent": 16.5,
+        "pair_speedup": 1.1976,
+        "same_gpu": true,
+        "standard_historical_output_exact": true
+      },
+      "gpu": {
+        "compute_capability": "8.0",
+        "driver_version": "580.82.07",
+        "memory_total_mib": 40960,
+        "name": "NVIDIA A100-SXM4-40GB"
+      },
+      "kv": {
+        "output_diversity_valid": true,
+        "peak_vram_mib": 33760,
+        "representative_cat_sha256": "e96e4858c2c26a60a600dd244d39deab32b5efa2b21b24faef88d63a56a387ac",
+        "representative_edit_sha256": "2e4b331a6152e2654d8eefd76b62e664654c5da556100a6dd1d26d2b0cdfb1fd",
+        "steady_state_edit_ms_median": 9332,
+        "steady_state_edit_ms_samples": [9363, 9301],
+        "steady_state_pair_ms_median": 15884,
+        "steady_state_pair_ms_samples": [15911, 15857]
+      },
+      "standard": {
+        "output_diversity_valid": true,
+        "peak_vram_mib": 29664,
+        "representative_cat_sha256": "1dd7c88f885d9cb33b82d2c5ab1b67a8670bb791efb42264177b5c1877fdc2de",
+        "representative_edit_sha256": "5dabd089b754ea26ce814ffca45c36d55d28d8365d4c4350237c5a9f06b6db21",
+        "steady_state_edit_ms_median": 12497,
+        "steady_state_edit_ms_samples": [12503, 12491],
+        "steady_state_pair_ms_median": 19022,
+        "steady_state_pair_ms_samples": [19021, 19024]
+      },
+      "visual_review_status": "pass"
+    },
+    "rtx_pro_6000": {
+      "comparison": {
+        "edit_latency_reduction_percent": 29.61,
+        "edit_speedup": 1.4206,
+        "historical_standard_persistent_pair_ms_median": 7774,
+        "pair_latency_reduction_percent": 20.44,
+        "pair_speedup": 1.257,
+        "same_gpu": true,
+        "standard_historical_output_exact": true
+      },
+      "gpu": {
+        "compute_capability": "12.0",
+        "driver_version": "580.82.07",
+        "memory_total_mib": 97887,
+        "name": "NVIDIA RTX PRO 6000 Blackwell Server Edition"
+      },
+      "kv": {
+        "output_diversity_valid": true,
+        "peak_vram_mib": 34547,
+        "representative_cat_sha256": "2caa7cd89ca99abf3b14df01dd5c49ecdf47411c33b2440f060c24265778dff0",
+        "representative_edit_sha256": "bd8bfb0072b0ac73531ffcd16ef38b7594c04f1ed2dfa7cd4549ad2041077f87",
+        "steady_state_edit_ms_median": 3780,
+        "steady_state_edit_ms_samples": [3789, 3770],
+        "steady_state_pair_ms_median": 6172,
+        "steady_state_pair_ms_samples": [6182, 6162]
+      },
+      "standard": {
+        "output_diversity_valid": true,
+        "peak_vram_mib": 29809,
+        "representative_cat_sha256": "26d665717d75b998414571ec2bac495de18d4a859a954f618df478af6956921f",
+        "representative_edit_sha256": "e7d69ac069f001f0ede16f570f45cf262f0d6fc525725cd6e5cb3ec103a39e53",
+        "steady_state_edit_ms_median": 5370,
+        "steady_state_edit_ms_samples": [5367, 5373],
+        "steady_state_pair_ms_median": 7758,
+        "steady_state_pair_ms_samples": [7755, 7761]
+      },
+      "visual_review_status": "pass"
+    }
+  },
+  "profile": "flux2-klein-9b-kv-q8",
+  "project_commit": "5e9838e9170756ea0b432e7e689b35c7c7475189",
+  "requests_per_profile": 3,
+  "schema_version": 1,
+  "tests_passed": true,
+  "visual_acceptance": {
+    "cat": "pass",
+    "same_cat_suit_edit": "pass"
+  }
+}
