@@ -27,11 +27,18 @@ function fakeManager() {
 
 async function withServer(
   callback,
-  { ready = true, loraStore, promptAssistant, manager = fakeManager() } = {},
+  {
+    ready = true,
+    imageStore,
+    loraStore,
+    promptAssistant,
+    manager = fakeManager(),
+  } = {},
 ) {
   const app = createHttpServer({
     config: { host: "127.0.0.1", port: 0 },
     manager,
+    imageStore,
     loraStore,
     promptAssistant,
     readiness: async () => ({
@@ -101,6 +108,66 @@ test("rewrites prompts through the optional local assistant with a completed ima
       options: { imagePath: "/jobs/klein-1.png" },
     });
   }, { manager, promptAssistant });
+});
+
+test("uploads image sources and uses them for vision-grounded prompt rewrites", async () => {
+  const sourceId = "123e4567-e89b-42d3-a456-426614174000";
+  const uploads = [];
+  const imageStore = {
+    list: () => [],
+    upload: async (input) => {
+      uploads.push(input);
+      for await (const _chunk of input.body) {
+        // Drain the request like the production streaming store.
+      }
+      return {
+        id: sourceId,
+        filename: "cat.png",
+        contentType: "image/png",
+        sizeBytes: 24,
+        width: 32,
+        height: 24,
+        url: `/api/images/${sourceId}`,
+      };
+    },
+    path: (id) => (id === sourceId ? "/uploads/cat.png" : null),
+    get: () => null,
+    remove: async () => false,
+  };
+  const calls = [];
+  const promptAssistant = {
+    status: async () => ({ enabled: true, ready: true, model: "qwen", detail: "ready" }),
+    rewrite: async (input, options) => {
+      calls.push({ input, options });
+      return { prompt: "A polished upload edit", model: "qwen", usedVision: true };
+    },
+  };
+
+  await withServer(async (origin) => {
+    const upload = await fetch(`${origin}/api/images`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "image/png",
+        "X-CPDif-Filename": encodeURIComponent("cat.png"),
+      },
+      body: Buffer.alloc(24),
+    });
+    assert.equal(upload.status, 201);
+    assert.equal((await upload.json()).image.id, sourceId);
+    assert.equal(uploads[0].contentType, "image/png");
+
+    const rewrite = await fetch(`${origin}/api/prompt-assistant/rewrite`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        mode: "edit",
+        prompt: "make the coat red",
+        image: { sourceId },
+      }),
+    });
+    assert.equal(rewrite.status, 200);
+    assert.deepEqual(calls[0].options, { imagePath: "/uploads/cat.png" });
+  }, { imageStore, promptAssistant });
 });
 
 test("does not overlap local prompt assistance with a native GPU workflow", async () => {

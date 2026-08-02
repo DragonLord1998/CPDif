@@ -9,6 +9,7 @@ import {
   resolveRuntimeConfig,
   runtimeReadiness,
 } from "./lib/runtime.mjs";
+import { ImageStore } from "./lib/image-store.mjs";
 import { LoraStore } from "./lib/lora-store.mjs";
 import {
   PromptAssistant,
@@ -80,12 +81,24 @@ export function createHttpServer({
   config,
   manager,
   readiness = runtimeReadiness,
+  imageStore,
   loraStore,
   promptAssistant,
   publicDir = path.join(UI_ROOT, "public"),
 } = {}) {
   const runtimeConfig = config ?? resolveRuntimeConfig({ uiRoot: UI_ROOT });
-  const jobs = manager ?? new JobManager(runtimeConfig);
+  const images =
+    imageStore ??
+    new ImageStore({
+      imageDir:
+        runtimeConfig.imageDir ?? path.join(UI_ROOT, "data", "images"),
+      maxImageBytes: runtimeConfig.maxImageBytes,
+    });
+  const jobs =
+    manager ??
+    new JobManager(runtimeConfig, {
+      resolveImageSource: (id) => images.path(id),
+    });
   const loras =
     loraStore ??
     new LoraStore({
@@ -118,6 +131,21 @@ export function createHttpServer({
         sendJson(response, 200, { jobs: jobs.list() });
         return;
       }
+      if (request.method === "GET" && pathname === "/api/images") {
+        sendJson(response, 200, { images: images.list() });
+        return;
+      }
+      if (request.method === "POST" && pathname === "/api/images") {
+        sendJson(response, 201, {
+          image: await images.upload({
+            body: request,
+            contentType: request.headers["content-type"],
+            filename: request.headers["x-cpdif-filename"],
+            declaredSize: request.headers["content-length"],
+          }),
+        });
+        return;
+      }
       if (request.method === "GET" && pathname === "/api/loras") {
         sendJson(response, 200, {
           loras: await loras.list(),
@@ -141,13 +169,22 @@ export function createHttpServer({
           if (body.image != null) {
             if (
               typeof body.image !== "object" ||
-              Array.isArray(body.image) ||
-              typeof body.image.jobId !== "string" ||
-              typeof body.image.stageId !== "string"
+              Array.isArray(body.image)
             ) {
-              throw new TypeError("prompt rewrite image must identify a completed job stage");
+              throw new TypeError("prompt rewrite image reference is invalid");
             }
-            imagePath = jobs.imagePath(body.image.jobId, body.image.stageId);
+            const uploaded = typeof body.image.sourceId === "string";
+            const completed =
+              typeof body.image.jobId === "string" &&
+              typeof body.image.stageId === "string";
+            if (uploaded === completed) {
+              throw new TypeError(
+                "prompt rewrite image must identify one upload or completed job stage",
+              );
+            }
+            imagePath = uploaded
+              ? images.path(body.image.sourceId)
+              : jobs.imagePath(body.image.jobId, body.image.stageId);
             if (!imagePath) {
               throw new TypeError("prompt rewrite reference image is not available");
             }
@@ -243,6 +280,39 @@ export function createHttpServer({
         return;
       }
 
+      const uploadedImageMatch = pathname.match(
+        /^\/api\/images\/([a-f0-9-]+)$/i,
+      );
+      if (uploadedImageMatch && request.method === "GET") {
+        const image = images.get(uploadedImageMatch[1]);
+        if (!image) {
+          sendError(response, 404, "uploaded image not found");
+          return;
+        }
+        response.writeHead(200, {
+          "Content-Type": image.contentType,
+          "Content-Length": image.sizeBytes,
+          "Cache-Control": "private, max-age=31536000, immutable",
+          "X-Content-Type-Options": "nosniff",
+        });
+        createReadStream(image.path)
+          .on("error", () => response.destroy())
+          .pipe(response);
+        return;
+      }
+      if (uploadedImageMatch && request.method === "DELETE") {
+        if (assistantBusy || nativeWorkflowActive()) {
+          sendError(response, 409, "wait for the active GPU task before removing an image");
+          return;
+        }
+        if (!(await images.remove(uploadedImageMatch[1]))) {
+          sendError(response, 404, "uploaded image not found");
+          return;
+        }
+        sendJson(response, 200, { removed: true });
+        return;
+      }
+
       if (request.method === "GET" && (await sendStatic(response, publicDir, pathname))) {
         return;
       }
@@ -265,6 +335,7 @@ export function createHttpServer({
     server,
     config: runtimeConfig,
     manager: jobs,
+    imageStore: images,
     loraStore: loras,
     promptAssistant: assistant,
   };

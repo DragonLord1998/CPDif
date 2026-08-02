@@ -276,12 +276,14 @@ CPDIF_WORKDIR=/content/cpdif-work CPDIF_UI_HOST=0.0.0.0 npm start
 
 Open port `4173`. The server detects the standard `build-a100` and `build-sm120`
 layouts, queues one GPU job at a time, and always launches the exact four-step
-Klein 9B-KV path. Add up to eight Klein nodes: no incoming image connection
-means Generate, while a connection to an earlier Klein output means Edit. The
-server fuses a compatible Generate → Edit pair into one native context. No
-`npm install` is required. Each node can optionally improve its prompt through
-the loopback-only Qwen vision assistant and restore the original with Undo. See
-[`ui/README.md`](ui/README.md) for path overrides and validation.
+Klein 9B-KV path. Add uploaded Image nodes and up to eight Klein nodes: no
+incoming image connection means Generate, while a connection to an uploaded
+image or earlier Klein output means Edit. The server fuses a compatible
+Generate → Edit pair into one native context. The LoRA downloader is a separate
+stored-only node below the Klein chain. No `npm install` is required. Each Klein
+node can optionally improve its prompt through the loopback-only Qwen vision
+assistant and restore the original with Undo. See [`ui/README.md`](ui/README.md)
+for path overrides and validation.
 
 ## Offline validation build
 

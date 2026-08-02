@@ -15,14 +15,14 @@
 
 ## Product goals
 
-- Goals: make FLUX.2 Klein generation and editing understandable as a visual image flow; keep common generation one action; expose connected edits without requiring CLI knowledge; optionally improve user prompts with a local vision-language model.
+- Goals: make FLUX.2 Klein generation and editing understandable as a visual image flow; keep common generation one action; accept uploaded reference images as first-class source nodes; expose connected edits without requiring CLI knowledge; optionally improve user prompts with a local vision-language model.
 - Non-goals: a general ComfyUI replacement, arbitrary cyclic graphs, concurrent GPU execution, silent prompt replacement, cloud prompt processing, or controls unsupported by the native runtime.
 - Success signals: a user can infer node behavior from its wires, create a generation or edit chain, run it once, and understand every output and failure.
 
 ## Personas and jobs
 
 - Primary personas: creators using a Colab GPU and technical users validating the native runtime.
-- User jobs: generate an image from text, transform an existing generated image, chain several edits, improve a rough prompt without losing its intent, inspect timings, and download results.
+- User jobs: upload an existing image, generate an image from text, transform an uploaded or generated image, chain several edits, improve a rough prompt without losing its intent, inspect timings, and download results.
 - Key contexts of use: desktop browser, Colab proxy, single attached A100 or RTX PRO 6000 GPU.
 
 ## Information architecture
@@ -34,6 +34,8 @@
 ## Design principles
 
 - Connections are configuration: a Klein node with no incoming image wire is Generate; a node with one incoming image wire is Edit.
+- Source nodes are visible: an uploaded Image node owns its preview and feeds Edit nodes through the same explicit image connection used by generated outputs.
+- Canvas utilities remain nodes: LoRA downloads live in a compact standalone node below the Klein chain, visually separate from native execution status and explicitly labelled as stored-only until runtime application exists.
 - Reveal consequences immediately: mode badge, prompt label, button copy, and validation update as wires change.
 - Preserve the fast path: a connected Generate to Edit pair maps to native `generate-edit` and one loaded model context.
 - Prompt assistance is explicit and reversible: Qwen rewrites only after a user action, preserves the original for Undo, and never blocks native generation when unavailable.
@@ -52,8 +54,8 @@
 ## Components
 
 - Existing components to reuse: app header, canvas toolbar, draggable/resizable node shell, ports, wires, parameter fields, runtime pills, execution card, output preview, modal, and toast.
-- New/changed components: Add Klein Node action, dynamic Klein node, inferred mode badge, removable connection, per-stage output selector, Improve prompt action, Undo prompt action, and independent assistant readiness.
-- Variants and states: Generate, Edit, selected, disconnected, invalid, queued, running, completed, cancelled, and failed.
+- New/changed components: Add Klein Node action, Add Image Node action, uploaded-image source node, standalone LoRA download node, inferred mode badge, removable connection, per-stage output selector, Improve prompt action, Undo prompt action, and independent assistant readiness.
+- Variants and states: Generate, Edit, selected, disconnected, uploading, uploaded, invalid, queued, running, completed, cancelled, and failed.
 - Token/component ownership: CSS custom properties and component rules remain in `ui/public/styles.css`; graph behavior remains dependency-free in `ui/public/app.js`.
 
 ## Accessibility
@@ -90,12 +92,11 @@
 - Framework/styling system: dependency-free Node 20 server and plain HTML/CSS/JavaScript.
 - Design-token constraints: extend the existing CSS variables; do not introduce another design-system layer.
 - Performance constraints: serialize GPU jobs, fuse the first Generate to Edit pair through native `generate-edit` when compatible, and unload the prompt model immediately after every rewrite before native inference begins.
-- Compatibility constraints: one image input per Edit node; no reference-strength control exists in the native CLI; the prompt assistant must use a loopback HTTP endpoint and must not become a generation prerequisite.
+- Compatibility constraints: one image input per Edit node; uploaded sources must be validated and resolved server-side without accepting client filesystem paths; no reference-strength control exists in the native CLI; the prompt assistant must use a loopback HTTP endpoint and must not become a generation prerequisite.
 - Test/screenshot expectations: Node unit/integration tests, Python repository tests, real browser interaction checks, and a visual screenshot review before publication.
 
 ## Open questions
 
 - [ ] Should a future native serving mode keep the model loaded across edit stages beyond the first fused pair? Owner: runtime; impact: latency.
-- [ ] Should uploaded image-source nodes be added after connected generated-image workflows? Owner: product; impact: external reference workflows.
 - [ ] What native contract should multiple-reference conditioning use? Owner: runtime; impact: allowing more than one image input.
 - [ ] Should a future prompt-assistant manager support MLX and OpenAI-compatible local servers in addition to Ollama? Owner: runtime; impact: broader local hardware support.

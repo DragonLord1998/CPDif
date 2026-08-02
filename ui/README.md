@@ -11,8 +11,11 @@ Prompts are passed as individual child-process arguments.
 ## Browser surface
 
 The frontend uses a light visual node canvas inspired by the supplied design
-reference. Add up to eight FLUX.2 Klein nodes and connect any node to an earlier
-Klein output. Mode is inferred from the image input: a node with no image
+reference. Add up to four uploaded Image nodes and eight FLUX.2 Klein nodes,
+then connect a Klein input to either an uploaded image or an earlier Klein
+output. PNG and JPEG uploads are streamed into the runtime, validated by type,
+signature, dimensions, and a 32 MiB default limit, and never accept client
+filesystem paths. Mode is inferred from the image input: a node with no image
 connection is Generate; a node with an image connection is Edit. Disconnecting
 the image immediately returns that node to Generate. Nodes can be dragged and
 resized, the canvas can be zoomed or reset, and the output panel switches among
@@ -25,12 +28,13 @@ flag. An adjacent Generate → Edit pair with matching dimensions is fused into
 one native `generate-edit` command so the model context is loaded once. Other
 roots run as `generate`; connected stages run as `edit --reference-image`.
 
-Each node also has an optional **Improve** action backed by a local Ollama
-vision model. Generate prompts are rewritten from text. Edit prompts also send
-the completed connected stage image when one is available, so the rewrite can
-name visible subjects and preservation constraints. The original prompt is
-retained behind **Undo**. Prompt assistance is explicit, never runs during a
-native workflow, and never blocks Generate or Edit when Ollama is unavailable.
+Each Klein node also has an optional **Improve** action backed by a local Ollama
+vision model. Generate prompts are rewritten from text. Edit prompts send the
+connected uploaded image immediately, or the completed connected stage image
+after a workflow finishes, so the rewrite can name visible subjects and
+preservation constraints. The original prompt is retained behind **Undo**.
+Prompt assistance is explicit, never runs during a native workflow, and never
+blocks Generate or Edit when Ollama is unavailable.
 
 The system prompt summarizes Black Forest Labs' official
 [FLUX.2 prompting guide](https://docs.bfl.ai/guides/prompting_guide_flux2) and
@@ -43,8 +47,8 @@ Ollama vision variant requested for this project. Abliteration removes refusal
 behavior; it is not a vision-quality enhancement, so the model remains
 configurable and the official `Qwen/Qwen3.5-9B` can be substituted.
 
-The FLUX node also includes a LoRA asset downloader with adjacent Name and HTTPS
-URL fields. Downloads are streamed into `CPDIF_LORA_DIR` (default:
+The canvas includes a standalone LoRA asset node below the Klein chain with
+adjacent Name and HTTPS URL fields. Downloads are streamed into `CPDIF_LORA_DIR` (default:
 `$CPDIF_WORKDIR/loras`), validated as safetensors, limited to 4 GiB by default,
 and listed in the UI. Private-network destinations and unsafe redirects are
 rejected. The current native `cpdif` CLI does not expose LoRA application, so
@@ -81,6 +85,8 @@ CPDIF_TRANSFORMER=/path/to/flux-2-klein-9b-kv-Q8_0.gguf \
 CPDIF_TEXT_ENCODER=/path/to/qwen_3_8b.safetensors \
 CPDIF_VAE=/path/to/flux2-vae.safetensors \
 CPDIF_UI_DATA_DIR=/path/to/job-output \
+CPDIF_UI_IMAGE_DIR=/path/to/reference-images \
+CPDIF_UI_MAX_IMAGE_BYTES=33554432 \
 CPDIF_LORA_DIR=/path/to/loras \
 CPDIF_UI_MAX_LORA_BYTES=4294967296 \
 CPDIF_PROMPT_ASSISTANT_ENABLED=1 \

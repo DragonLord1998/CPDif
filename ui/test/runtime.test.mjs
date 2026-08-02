@@ -83,6 +83,32 @@ test("infers Generate or Edit from each stage image connection", () => {
       }),
     /earlier stage/,
   );
+  const uploadId = "123e4567-e89b-42d3-a456-426614174000";
+  const uploaded = normalizeWorkflowInput({
+    stages: [
+      {
+        id: "klein-1",
+        inputImageId: uploadId,
+        prompt: "replace the background",
+      },
+    ],
+  }).stages[0];
+  assert.equal(uploaded.mode, "edit");
+  assert.equal(uploaded.inputImageId, uploadId);
+  assert.throws(
+    () =>
+      normalizeWorkflowInput({
+        stages: [
+          {
+            id: "klein-1",
+            inputStageId: "earlier",
+            inputImageId: uploadId,
+            prompt: "invalid",
+          },
+        ],
+      }),
+    /at most one image input/,
+  );
 });
 
 test("builds generate-only and fused connected workflow commands", () => {
@@ -136,6 +162,29 @@ test("builds generate-only and fused connected workflow commands", () => {
     chainCommands[1].args[chainCommands[1].args.indexOf("--reference-image") + 1],
     "/outputs/chain/klein-2.png",
   );
+
+  const uploadId = "123e4567-e89b-42d3-a456-426614174000";
+  const uploadInput = normalizeWorkflowInput({
+    stages: [
+      {
+        id: "klein-1",
+        inputImageId: uploadId,
+        prompt: "turn the sky pink",
+        seed: 13,
+      },
+    ],
+  });
+  const uploadCommand = buildWorkflowCommands(
+    config,
+    uploadInput,
+    workflowPaths("/outputs", "upload", uploadInput),
+    new Map([[uploadId, "/uploads/reference.png"]]),
+  )[0];
+  assert.equal(uploadCommand.args[0], "edit");
+  assert.equal(
+    uploadCommand.args[uploadCommand.args.indexOf("--reference-image") + 1],
+    "/uploads/reference.png",
+  );
 });
 
 test("builds the exact Klein KV command without a shell", () => {
@@ -174,11 +223,15 @@ test("resolves the LoRA asset directory and bounded download limit", () => {
       CPDIF_WORKDIR: "/runtime/work",
       CPDIF_UI_MAX_VRAM: "",
       CPDIF_LORA_DIR: "/runtime/loras",
+      CPDIF_UI_IMAGE_DIR: "/runtime/images",
       CPDIF_UI_MAX_LORA_BYTES: "2048",
+      CPDIF_UI_MAX_IMAGE_BYTES: "4096",
     },
   });
   assert.equal(config.loraDir, "/runtime/loras");
+  assert.equal(config.imageDir, "/runtime/images");
   assert.equal(config.maxLoraBytes, 2048);
+  assert.equal(config.maxImageBytes, 4096);
 });
 
 test("forces a stuck cancelled process down and advances the GPU queue", async () => {
